@@ -1,14 +1,23 @@
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-app = Flask(__name__, static_folder="static")
+app = Flask(__name__)
 
-# Binance Public API endpoints: automatic fallback
-BINANCE_BASES = [
+# -----------------------------
+# SETTINGS
+# -----------------------------
+
+SYMBOLS = [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "SOLUSDT", "TRXUSDT",
+    "LINKUSDT", "LTCUSDT", "BCHUSDT", "DOTUSDT",
+    "AVAXUSDT", "MATICUSDT", "SHIBUSDT", "DOGEBTC"
+]
+
+BINANCE_HOSTS = [
     "https://data-api.binance.vision",
     "https://api-gcp.binance.com",
     "https://api1.binance.com",
@@ -18,519 +27,413 @@ BINANCE_BASES = [
     "https://api.binance.com"
 ]
 
-TIMEOUT = 10
-
-SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT",
-    "SOLUSDT", "DOGEUSDT", "ADAUSDT", "TRXUSDT",
-    "LINKUSDT", "AVAXUSDT", "DOTUSDT", "LTCUSDT",
-    "BCHUSDT", "NEARUSDT", "ATOMUSDT", "DOGEBTC"
-]
-
-INTERVALS = {
-    "1H": "1h",
-    "4H": "4h",
-    "1D": "1d"
-}
+SESSION = requests.Session()
+SESSION.headers.update({"User-Agent": "UniversalCryptoReversalScanner/1.0"})
 
 
-def get_json(path, params=None):
-    errors = []
+# -----------------------------
+# BINANCE DATA
+# -----------------------------
 
-    for base in BINANCE_BASES:
+def get_klines(symbol, interval, limit=120):
+    last_error = None
+
+    for host in BINANCE_HOSTS:
         try:
-            response = requests.get(
-                base + path,
-                params=params,
-                timeout=TIMEOUT,
-                headers={
-                    "User-Agent": "Mozilla/5.0",
-                    "Accept": "application/json"
-                }
+            url = f"{host}/api/v3/klines"
+            response = SESSION.get(
+                url,
+                params={
+                    "symbol": symbol,
+                    "interval": interval,
+                    "limit": limit
+                },
+                timeout=12
             )
-
             response.raise_for_status()
-            return response.json()
+            data = response.json()
 
-        except requests.exceptions.RequestException as exc:
-            errors.append(
-                base + " : " + str(exc)[:120]
-            )
+            if not isinstance(data, list) or len(data) < 55:
+                raise ValueError("Not enough candle data")
 
-    raise Exception(
-        "All Binance Public API endpoints failed: "
-        + " | ".join(errors[-3:])
-    )
+            # Binance's final candle may still be forming.
+            # Keep only fully closed candles.
+            now_ms = int(time.time() * 1000)
+            closed = [c for c in data if int(c[6]) < now_ms]
 
+            if len(closed) < 55:
+                raise ValueError("Not enough closed candles")
 
-def fetch_klines(symbol, interval, limit=100):
+            return [
+                {
+                    "time": int(c[0]),
+                    "open": float(c[1]),
+                    "high": float(c[2]),
+                    "low": float(c[3]),
+                    "close": float(c[4]),
+                    "volume": float(c[5])
+                }
+                for c in closed
+            ]
 
-    raw = get_json(
-        "/api/v3/klines",
-        {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit
-        }
-    )
+        except Exception as exc:
+            last_error = str(exc)
 
-    # Ignore currently forming candle
-    if len(raw) > 1:
-        raw = raw[:-1]
-
-    candles = []
-
-    for k in raw:
-        candles.append({
-            "open_time": int(k[0]),
-            "open": float(k[1]),
-            "high": float(k[2]),
-            "low": float(k[3]),
-            "close": float(k[4]),
-            "volume": float(k[5]),
-            "close_time": int(k[6])
-        })
-
-    return candles
+    raise RuntimeError(last_error or "Binance API unavailable")
 
 
-def ema(values, period):
+# -----------------------------
+# INDICATORS
+# -----------------------------
 
+def calculate_ema(values, period):
     if len(values) < period:
         return None
 
-    alpha = 2.0 / (period + 1.0)
+    multiplier = 2 / (period + 1)
+    ema_value = sum(values[:period]) / period
 
-    value = sum(values[:period]) / period
-
-    for item in values[period:]:
-        value = (
-            item * alpha
-            + value * (1.0 - alpha)
+    for value in values[period:]:
+        ema_value = (value * multiplier) + (
+            ema_value * (1 - multiplier)
         )
 
-    return value
+    return ema_value
 
 
-def rsi_series(values, period=14):
-
+def calculate_rsi(values, period=14):
     if len(values) <= period:
-        return []
+        return None
 
     gains = []
     losses = []
 
     for i in range(1, len(values)):
-
         change = values[i] - values[i - 1]
-
-        gains.append(max(change, 0.0))
-        losses.append(max(-change, 0.0))
+        gains.append(max(change, 0))
+        losses.append(max(-change, 0))
 
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
 
-    result = [None] * period
+    rsi_values = []
 
-    def calculate_rsi(gain, loss):
-
+    def get_rsi(gain, loss):
         if loss == 0:
-            return 100.0 if gain > 0 else 50.0
-
+            return 100.0
         rs = gain / loss
+        return 100 - (100 / (1 + rs))
 
-        return 100.0 - (100.0 / (1.0 + rs))
-
-    result.append(
-        calculate_rsi(avg_gain, avg_loss)
-    )
+    rsi_values.append(get_rsi(avg_gain, avg_loss))
 
     for i in range(period, len(gains)):
+        avg_gain = ((avg_gain * (period - 1)) + gains[i]) / period
+        avg_loss = ((avg_loss * (period - 1)) + losses[i]) / period
+        rsi_values.append(get_rsi(avg_gain, avg_loss))
 
-        avg_gain = (
-            avg_gain * (period - 1) + gains[i]
-        ) / period
-
-        avg_loss = (
-            avg_loss * (period - 1) + losses[i]
-        ) / period
-
-        result.append(
-            calculate_rsi(avg_gain, avg_loss)
-        )
-
-    return result
+    return rsi_values
 
 
-def reversal_analysis(candles):
+def get_support_resistance(candles):
+    # Use the previous 30 closed candles, excluding the latest candle.
+    previous = candles[-31:-1]
 
-    if len(candles) < 55:
+    if not previous:
+        return None, None
 
-        return {
-            "signal": "WAIT",
-            "reason": "कम candles",
-            "rsi": None,
-            "support": None,
-            "resistance": None
-        }
+    support = min(c["low"] for c in previous)
+    resistance = max(c["high"] for c in previous)
 
+    return support, resistance
+
+
+def candle_details(candle):
+    body = abs(candle["close"] - candle["open"])
+    total_range = max(candle["high"] - candle["low"], 1e-12)
+
+    lower_wick = min(candle["open"], candle["close"]) - candle["low"]
+    upper_wick = candle["high"] - max(candle["open"], candle["close"])
+
+    return {
+        "bullish": candle["close"] > candle["open"],
+        "bearish": candle["close"] < candle["open"],
+        "body": body,
+        "lower_wick": max(lower_wick, 0),
+        "upper_wick": max(upper_wick, 0),
+        "range": total_range
+    }
+
+
+# -----------------------------
+# 1H EARLY SIGNAL
+# Three required conditions:
+# Candle + RSI crossing + Support/Resistance
+# -----------------------------
+
+def early_analysis(candles):
     closes = [c["close"] for c in candles]
+    rsi_values = calculate_rsi(closes)
 
+    support, resistance = get_support_resistance(candles)
     last = candles[-1]
+    details = candle_details(last)
 
-    rsis = rsi_series(closes, 14)
+    current_rsi = rsi_values[-1]
+    previous_rsi = rsi_values[-2]
 
-    rsi_now = rsis[-1] if rsis else None
+    ema30 = calculate_ema(closes, 30)
+    ema50 = calculate_ema(closes, 50)
 
-    rsi_prev = (
-        rsis[-2] if len(rsis) > 1 else None
-    )
-
-    ema20_now = ema(closes, 20)
-    ema50_now = ema(closes, 50)
-
-    ema20_prev = ema(closes[:-1], 20)
-    ema50_prev = ema(closes[:-1], 50)
-
-    # Previous 30 closed candles
-    history = candles[-31:-1]
-
-    support = min(c["low"] for c in history)
-    resistance = max(c["high"] for c in history)
-
-    price = last["close"]
-
-    tolerance = 0.018
+    ema_bias = "NEUTRAL"
+    if ema30 is not None and ema50 is not None:
+        if ema30 > ema50:
+            ema_bias = "BULLISH"
+        elif ema30 < ema50:
+            ema_bias = "BEARISH"
 
     near_support = (
-        last["low"] <= support * (1 + tolerance)
-        and price >= support * (1 - tolerance)
+        support is not None
+        and last["low"] <= support * 1.018
+        and last["close"] >= support
     )
 
     near_resistance = (
-        last["high"] >= resistance * (1 - tolerance)
-        and price <= resistance * (1 + tolerance)
+        resistance is not None
+        and last["high"] >= resistance * 0.982
+        and last["close"] <= resistance
     )
 
-    candle_range = max(
-        last["high"] - last["low"],
-        1e-12
+    # BUY: bullish reversal candle + RSI crosses above 30 + support zone
+    bullish_candle = (
+        details["bullish"]
+        and details["lower_wick"] >= details["body"] * 0.5
     )
 
-    lower_wick = (
-        min(last["open"], last["close"])
-        - last["low"]
-    )
-
-    upper_wick = (
-        last["high"]
-        - max(last["open"], last["close"])
-    )
-
-    lower_wick_ratio = max(
-        0.0, lower_wick / candle_range
-    )
-
-    upper_wick_ratio = max(
-        0.0, upper_wick / candle_range
-    )
-
-    # Support rejection
-    bullish_rejection = (
-        near_support
-        and last["close"] > last["open"]
-        and lower_wick_ratio >= 0.65
-    )
-
-    # Resistance rejection
-    bearish_rejection = (
-        near_resistance
-        and last["close"] < last["open"]
-        and upper_wick_ratio >= 0.65
-    )
-
-    # RSI 14 crossing
-    rsi_bull_cross = (
-        rsi_prev is not None
-        and rsi_now is not None
-        and rsi_prev <= 30
-        and rsi_now > 30
-    )
-
-    rsi_bear_cross = (
-        rsi_prev is not None
-        and rsi_now is not None
-        and rsi_prev >= 70
-        and rsi_now < 70
-    )
-
-    # RSI divergence
-    bull_div = False
-    bear_div = False
-
-    if len(candles) >= 35 and len(rsis) >= 35:
-
-        a = candles[-10:-5]
-        b = candles[-5:]
-
-        ra = [
-            x for x in rsis[-10:-5]
-            if x is not None
-        ]
-
-        rb = [
-            x for x in rsis[-5:]
-            if x is not None
-        ]
-
-        if ra and rb:
-
-            bull_div = (
-                min(x["low"] for x in b)
-                < min(x["low"] for x in a)
-                and min(rb) > min(ra)
-            )
-
-            bear_div = (
-                max(x["high"] for x in b)
-                > max(x["high"] for x in a)
-                and max(rb) < max(ra)
-            )
-
-    # EMA crossover
-    ema_bull_cross = (
-        ema20_prev is not None
-        and ema50_prev is not None
-        and ema20_now > ema50_now
-        and ema20_prev <= ema50_prev
-    )
-
-    ema_bear_cross = (
-        ema20_prev is not None
-        and ema50_prev is not None
-        and ema20_now < ema50_now
-        and ema20_prev >= ema50_prev
-    )
-
-    # Breakout and retest
-    breakout_retest_buy = (
-        last["close"] > resistance
-        and last["low"] <= resistance * (1 + tolerance)
-    )
-
-    breakout_retest_sell = (
-        last["close"] < support
-        and last["high"] >= support * (1 - tolerance)
-    )
-
-    bull_rsi_ok = rsi_bull_cross or bull_div
-    bear_rsi_ok = rsi_bear_cross or bear_div
-
-    bull_confirm = (
-        bullish_rejection
-        and (bull_rsi_ok or ema_bull_cross)
-    ) or (
-        breakout_retest_buy
-        and (bull_rsi_ok or ema_bull_cross)
-    )
-
-    bear_confirm = (
-        bearish_rejection
-        and (bear_rsi_ok or ema_bear_cross)
-    ) or (
-        breakout_retest_sell
-        and (bear_rsi_ok or ema_bear_cross)
-    )
-
-    if bull_confirm and not bear_confirm:
+    if (
+        bullish_candle
+        and previous_rsi <= 30
+        and current_rsi > 30
+        and near_support
+    ):
         signal = "BUY"
+        reason = "Bullish candle + RSI crossed above 30 + Support"
 
-    elif bear_confirm and not bull_confirm:
+    # SELL: bearish reversal candle + RSI crosses below 70 + resistance zone
+    elif (
+        details["bearish"]
+        and details["upper_wick"] >= details["body"] * 0.5
+        and previous_rsi >= 70
+        and current_rsi < 70
+        and near_resistance
+    ):
         signal = "SELL"
+        reason = "Bearish candle + RSI crossed below 70 + Resistance"
 
     else:
         signal = "WAIT"
-
-    reasons = []
-
-    if bullish_rejection:
-        reasons.append("Support rejection")
-
-    if bearish_rejection:
-        reasons.append("Resistance rejection")
-
-    if rsi_bull_cross:
-        reasons.append("RSI crossed above 30")
-
-    if rsi_bear_cross:
-        reasons.append("RSI crossed below 70")
-
-    if bull_div:
-        reasons.append("Bullish RSI divergence")
-
-    if bear_div:
-        reasons.append("Bearish RSI divergence")
-
-    if ema_bull_cross:
-        reasons.append("EMA20 crossed above EMA50")
-
-    if ema_bear_cross:
-        reasons.append("EMA20 crossed below EMA50")
-
-    if breakout_retest_buy:
-        reasons.append("Bullish breakout/retest")
-
-    if breakout_retest_sell:
-        reasons.append("Bearish breakout/retest")
+        reason = "All three Early Signal conditions not met"
 
     return {
         "signal": signal,
-        "reason": (
-            ", ".join(reasons)
-            if reasons
-            else "Reversal setup not confirmed"
-        ),
-        "rsi": (
-            round(rsi_now, 2)
-            if rsi_now is not None
-            else None
-        ),
+        "rsi": round(current_rsi, 2),
         "support": support,
         "resistance": resistance,
-        "price": price,
-        "ema20": ema20_now,
-        "ema50": ema50_now,
-        "closed_candle_time": last["close_time"]
+        "ema30": ema30,
+        "ema50": ema50,
+        "ema_bias": ema_bias,
+        "reason": reason
     }
 
+
+# -----------------------------
+# 4H MAIN REVERSAL
+# RSI + EMA 30/50
+# -----------------------------
+
+def main_reversal_analysis(candles):
+    closes = [c["close"] for c in candles]
+    rsi_values = calculate_rsi(closes)
+
+    current_rsi = rsi_values[-1]
+    previous_rsi = rsi_values[-2]
+
+    ema30 = calculate_ema(closes, 30)
+    ema50 = calculate_ema(closes, 50)
+
+    bullish_rsi = previous_rsi <= 30 and current_rsi > 30
+    bearish_rsi = previous_rsi >= 70 and current_rsi < 70
+
+    bullish_ema = ema30 > ema50
+    bearish_ema = ema30 < ema50
+
+    if bullish_rsi and bullish_ema:
+        signal = "BUY"
+        reason = "4H RSI crossed above 30 + EMA30 above EMA50"
+
+    elif bearish_rsi and bearish_ema:
+        signal = "SELL"
+        reason = "4H RSI crossed below 70 + EMA30 below EMA50"
+
+    else:
+        signal = "WAIT"
+        reason = "4H RSI and EMA confirmation not aligned"
+
+    support, resistance = get_support_resistance(candles)
+
+    return {
+        "signal": signal,
+        "rsi": round(current_rsi, 2),
+        "support": support,
+        "resistance": resistance,
+        "ema30": ema30,
+        "ema50": ema50,
+        "reason": reason
+    }
+
+
+# -----------------------------
+# 1D CONFIRMATION
+# Daily RSI + candle direction
+# -----------------------------
+
+def daily_confirmation(candles):
+    closes = [c["close"] for c in candles]
+    rsi_values = calculate_rsi(closes)
+
+    current_rsi = rsi_values[-1]
+    last = candles[-1]
+    details = candle_details(last)
+
+    if current_rsi > 50 and details["bullish"]:
+        signal = "BUY"
+        reason = "Daily RSI above 50 + bullish candle"
+
+    elif current_rsi < 50 and details["bearish"]:
+        signal = "SELL"
+        reason = "Daily RSI below 50 + bearish candle"
+
+    else:
+        signal = "WAIT"
+        reason = "Daily RSI and candle direction not aligned"
+
+    return {
+        "signal": signal,
+        "rsi": round(current_rsi, 2),
+        "reason": reason
+    }
+
+
+# -----------------------------
+# SCAN ONE COIN
+# -----------------------------
 
 def scan_symbol(symbol):
-
-    result = {
-        "symbol": symbol,
-        "1H": None,
-        "4H": None,
-        "1D": None,
-        "strong": "WAIT"
-    }
-
     try:
+        candles_1h = get_klines(symbol, "1h")
+        candles_4h = get_klines(symbol, "4h")
+        candles_1d = get_klines(symbol, "1d")
 
-        for label, interval in INTERVALS.items():
+        early = early_analysis(candles_1h)
+        main = main_reversal_analysis(candles_4h)
+        daily = daily_confirmation(candles_1d)
 
-            candles = fetch_klines(
-                symbol,
-                interval,
-                100
-            )
+        strong = "WAIT"
 
-            result[label] = reversal_analysis(candles)
+        if (
+            main["signal"] == "BUY"
+            and daily["signal"] == "BUY"
+        ):
+            strong = "STRONG BUY"
 
-        four_h = result["4H"]["signal"]
-        one_d = result["1D"]["signal"]
+        elif (
+            main["signal"] == "SELL"
+            and daily["signal"] == "SELL"
+        ):
+            strong = "STRONG SELL"
 
-        if four_h == "BUY" and one_d == "BUY":
-
-            result["strong"] = "STRONG BUY"
-
-        elif four_h == "SELL" and one_d == "SELL":
-
-            result["strong"] = "STRONG SELL"
-
-        else:
-
-            result["strong"] = "WAIT"
-
-        return result
+        return {
+            "symbol": symbol,
+            "1H": early,
+            "4H": main,
+            "1D": daily,
+            "rsi": main["rsi"],
+            "support": main["support"],
+            "resistance": main["resistance"],
+            "strong": strong,
+            "status": "OK"
+        }
 
     except Exception as exc:
+        return {
+            "symbol": symbol,
+            "1H": {"signal": "WAIT", "reason": "Data unavailable"},
+            "4H": {"signal": "WAIT", "reason": "Data unavailable"},
+            "1D": {"signal": "WAIT", "reason": "Data unavailable"},
+            "rsi": None,
+            "support": None,
+            "resistance": None,
+            "strong": "WAIT",
+            "status": "ERROR",
+            "error": str(exc)
+        }
 
-        result["error"] = str(exc)[:500]
 
-        return result
-
+# -----------------------------
+# API ROUTES
+# -----------------------------
 
 @app.route("/")
 def home():
-
-    return send_from_directory(
-        "static",
-        "index.html"
-    )
+    return jsonify({
+        "service": "Universal Crypto Reversal Scanner",
+        "status": "running"
+    })
 
 
 @app.route("/health")
 def health():
-
     return jsonify({
-        "status": "ok",
-        "service": "Universal Crypto Reversal Scanner"
+        "service": "Universal Crypto Reversal Scanner",
+        "status": "ok"
     })
 
 
 @app.route("/api/scan")
-def api_scan():
+def scan():
+    results = []
 
-    started = time.time()
-
-    rows = []
-
-    # Limited workers to protect Render memory
-    with ThreadPoolExecutor(max_workers=3) as pool:
-
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {
-            pool.submit(scan_symbol, symbol): symbol
+            executor.submit(scan_symbol, symbol): symbol
             for symbol in SYMBOLS
         }
 
         for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                symbol = futures[future]
+                results.append({
+                    "symbol": symbol,
+                    "status": "ERROR",
+                    "error": str(exc),
+                    "strong": "WAIT"
+                })
 
-            rows.append(future.result())
-
-    order = {
-        symbol: i
-        for i, symbol in enumerate(SYMBOLS)
-    }
-
-    rows.sort(
-        key=lambda x: order.get(x["symbol"], 999)
-    )
+    # Keep the dashboard in the configured coin order.
+    order = {symbol: index for index, symbol in enumerate(SYMBOLS)}
+    results.sort(key=lambda item: order.get(item["symbol"], 999))
 
     return jsonify({
-
         "status": "success",
-
-        "count": len(rows),
-
-        "symbols": rows,
-
-        "strategy": (
-            "Support/Resistance + RSI14 + "
-            "Divergence + EMA20/50 + Breakout/Retest"
-        ),
-
-        "timeframes": [
-            "1H Early",
-            "4H Main Reversal",
-            "1D Confirmation"
-        ],
-
-        "closed_candles_only": True,
-
-        "scan_seconds": round(
-            time.time() - started, 2
-        ),
-
-        "updated_utc": datetime.now(
-            timezone.utc
-        ).isoformat()
-
+        "total": len(results),
+        "successful": sum(1 for r in results if r.get("status") == "OK"),
+        "failed": sum(1 for r in results if r.get("status") != "OK"),
+        "strong_buy": sum(1 for r in results if r.get("strong") == "STRONG BUY"),
+        "strong_sell": sum(1 for r in results if r.get("strong") == "STRONG SELL"),
+        "results": results
     })
 
 
 if __name__ == "__main__":
-
-    app.run(
-        host="0.0.0.0",
-        port=10000
-    )
+    app.run(host="0.0.0.0", port=10000)
