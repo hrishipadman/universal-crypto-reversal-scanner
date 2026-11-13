@@ -32,11 +32,9 @@ td:first-child{text-align:left;font-weight:bold}
 <h2>Universal Crypto Scanner</h2>
 <div class="sub">1H Early | 4H Confirmation | 1D Confirmation</div>
 </header>
-
 <div class="container">
 <div class="status" id="status">Scanner शुरू हो रहा है...</div>
 <button onclick="loadData()">Refresh Scanner</button>
-
 <div class="table-wrap">
 <table>
 <thead>
@@ -56,57 +54,45 @@ td:first-child{text-align:left;font-weight:bold}
 </tbody>
 </table>
 </div>
-
 <div class="note">
-BUY और SELL तकनीकी संकेत हैं, खरीदने या बेचने का निर्देश नहीं।
-Strong Buy/Sell तभी दिखेगा जब 4H और 1D दोनों पर Confirmed Signal एक ही दिशा में हो। डेटा Binance से लिया जाता है। नेटवर्क या API समस्या होने पर कुछ कॉइन का डेटा उपलब्ध नहीं हो सकता। यह स्कैनर ऑटो ट्रेडिंग नहीं करता और संकेतों की लाभप्रदता की गारंटी नहीं है।
+Strong Buy/Sell तभी दिखेगा जब 4H और 1D दोनों पर Confirmed Signal एक ही दिशा में हो। यह स्कैनर ऑटो ट्रेडिंग नहीं करता और संकेत लाभ की गारंटी नहीं हैं।
 </div>
 </div>
-
 <script>
 function signalClass(value){
  if(value==="BUY") return "buy";
  if(value==="SELL") return "sell";
  return "wait";
 }
-
 function strongClass(value){
  if(value==="STRONG BUY") return "strongbuy";
  if(value==="STRONG SELL") return "strongsell";
  return "wait";
 }
-
 function makeCell(value, cls){
  const td=document.createElement("td");
  td.className=cls;
  td.textContent=value || "WAIT";
  return td;
 }
-
 async function loadData(){
  const status=document.getElementById("status");
  const rows=document.getElementById("rows");
-
  status.textContent="Market data लोड हो रहा है...";
  rows.innerHTML='<tr><td colspan="8">Loading...</td></tr>';
-
  try{
   const response=await fetch("/api/scan");
   if(!response.ok) throw new Error("Server error: "+response.status);
-
   const data=await response.json();
   if(!data.success || !Array.isArray(data.coins)){
    throw new Error("Invalid scanner response");
   }
-
   rows.innerHTML="";
-
   data.coins.forEach(coin=>{
    const tr=document.createElement("tr");
    const name=document.createElement("td");
    name.textContent=(coin.symbol || "").replace("USDT","");
    tr.appendChild(name);
-
    if(coin.status!=="OK"){
     const error=document.createElement("td");
     error.colSpan=7;
@@ -117,28 +103,22 @@ async function loadData(){
     const h1=coin["1h"];
     const h4=coin["4h"];
     const d1=coin["1d"];
-
     tr.appendChild(makeCell(h1.early_signal,signalClass(h1.early_signal)));
     tr.appendChild(makeCell(h4.early_signal,signalClass(h4.early_signal)));
     tr.appendChild(makeCell(h4.confirmed_signal,signalClass(h4.confirmed_signal)));
     tr.appendChild(makeCell(d1.early_signal,signalClass(d1.early_signal)));
     tr.appendChild(makeCell(d1.confirmed_signal,signalClass(d1.confirmed_signal)));
-    tr.appendChild(makeCell(h4.rsi, "wait"));
+    tr.appendChild(makeCell(h4.rsi,"wait"));
     tr.appendChild(makeCell(coin.strong_signal,strongClass(coin.strong_signal)));
    }
-
    rows.appendChild(tr);
   });
-
-  status.textContent=
-   "Scanner Active | "+data.count+" Coins | Updated: "+data.updated;
-
+  status.textContent="Scanner Active | "+data.count+" Coins | Updated: "+data.updated;
  }catch(error){
   status.textContent="Scanner Error: "+error.message;
   rows.innerHTML='<tr><td colspan="8" class="error">डेटा लोड नहीं हुआ। Refresh करें।</td></tr>';
  }
 }
-
 loadData();
 </script>
 </body>
