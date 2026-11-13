@@ -4,110 +4,273 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Universal Crypto Reversal Scanner</title>
+<meta name="theme-color" content="#0b1220">
+<title>Universal Crypto Reversal Scanner V2</title>
+
 <style>
-body{margin:0;background:#0b1220;color:#fff;font-family:Arial;padding:16px}
+*{box-sizing:border-box}
+body{
+ margin:0;
+ padding:16px;
+ background:#0b1220;
+ color:#fff;
+ font-family:Arial,sans-serif
+}
 h2{color:#60a5fa}
-.card{background:#17243a;padding:15px;border-radius:12px;margin:12px 0}
-button{background:#2563eb;color:white;border:0;padding:13px;border-radius:8px;margin:5px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-td,th{padding:10px 5px;border-bottom:1px solid #334155;text-align:left}
-.buy{color:#4ade80}.sell{color:#f87171}.wait{color:#facc15}
+.card{
+ background:#17243a;
+ padding:18px;
+ margin:15px 0;
+ border-radius:16px;
+ overflow:hidden
+}
+button{
+ background:#2563eb;
+ color:white;
+ border:0;
+ padding:13px 16px;
+ border-radius:9px;
+ margin:5px 3px;
+ font-size:14px
+}
+button:disabled{opacity:.5}
+table{
+ width:100%;
+ border-collapse:collapse;
+ min-width:650px
+}
+th,td{
+ padding:12px 9px;
+ border-bottom:1px solid #34435b;
+ text-align:left;
+ font-size:13px
+}
+th{color:#93c5fd}
+.tablewrap{overflow-x:auto}
+.buy{color:#4ade80;font-weight:bold}
+.sell{color:#fb7185;font-weight:bold}
+.wait{color:#facc15}
+.early{color:#fbbf24;font-weight:bold}
 small{color:#9ca3af}
+.stat{font-size:13px;color:#cbd5e1}
 </style>
 </head>
+
 <body>
+
 <h2>Universal Crypto Reversal Scanner</h2>
-<small>Binance Spot | All USDT Pairs | 4H + 1D</small>
+<p class="stat">Binance Spot | All USDT Pairs | 4H + 1D</p>
 
 <div class="card">
-<h3>Market Scanner</h3>
-<p id="status">Connecting...</p>
-<button onclick="scan()">Scan Next 40 Pairs</button>
+<h3>Market Scanner V2</h3>
+<p id="status">Connecting to Binance...</p>
+
+<button onclick="scanNext()">Scan Next 40 Pairs</button>
 <button onclick="scanAll()">Scan All Pairs</button>
-<button onclick="notify()">Enable Alerts</button>
+<button onclick="enableAlerts()">Enable Alerts</button>
+
+<p id="progress" class="stat">Ready</p>
 </div>
 
 <div class="card">
+<h3>Signal Summary</h3>
+<p id="summary">No scan completed yet</p>
+</div>
+
+<div class="card">
+<h3>Reversal Signals</h3>
+<div class="tablewrap">
 <table>
 <thead>
 <tr>
-<th>Coin</th><th>4H</th><th>1D</th><th>RSI</th>
+<th>Coin</th>
+<th>4H Early</th>
+<th>4H Confirmed</th>
+<th>1D Early</th>
+<th>1D Confirmed</th>
+<th>RSI 4H</th>
 </tr>
 </thead>
-<tbody id="results"></tbody>
+<tbody id="results">
+<tr><td colspan="6">Press Scan Next 40 Pairs</td></tr>
+</tbody>
 </table>
+</div>
 </div>
 
 <div class="card">
 <h3>Indicator Settings</h3>
 <p>RSI: 14</p>
 <p>EMA: 20 / 50</p>
-<p>Support: Last 30 candles</p>
-<p>Resistance: Last 30 candles</p>
+<p>Support: Previous 30 candles</p>
+<p>Resistance: Previous 30 candles</p>
+<p>Timeframes: 4H / 1D</p>
 </div>
 
 <script>
-let offset=0,total=0,busy=false;
-let seen=new Set();
+let offset=0;
+let total=0;
+let scanning=false;
+let knownSignals=new Set();
 
-function cls(s){
+const API="";
+
+function signalClass(s){
+ if(!s)return "wait";
  if(s.includes("BUY"))return "buy";
  if(s.includes("SELL"))return "sell";
  return "wait";
 }
 
-async function scan(){
- if(busy)return;
- busy=true;
- document.getElementById("status").innerText="Scanning...";
+function signalCell(s){
+ if(!s)return '<span class="wait">WAIT</span>';
+ let cls=signalClass(s);
+ return '<span class="'+cls+'">'+s+'</span>';
+}
+
+async function checkStatus(){
  try{
- const res=await fetch("/api/scan?offset="+offset+"&limit=40");
- const data=await res.json();
- if(data.error)throw Error(data.error);
- total=data.total;
- data.results.forEach(r=>{
- if(seen.has(r.symbol))return;
- seen.add(r.symbol);
- const a=r["4h"]||{},b=r["1d"]||{};
- const tr=document.createElement("tr");
- tr.innerHTML="<td>"+r.symbol+"</td>"+
- "<td class='"+cls(a.signal||"WAIT")+"'>"+(a.signal||"-")+"</td>"+
- "<td class='"+cls(b.signal||"WAIT")+"'>"+(b.signal||"-")+"</td>"+
- "<td>"+(a.rsi??"-")+"</td>";
- document.getElementById("results").appendChild(tr);
- if(Notification.permission==="granted"){
- if(a.signal&&a.signal!=="WAIT")
- new Notification(r.symbol+" 4H: "+a.signal);
- if(b.signal&&b.signal!=="WAIT")
- new Notification(r.symbol+" 1D: "+b.signal);
- }
- });
- offset=data.next_offset;
- if(data.done)offset=0;
- document.getElementById("status").innerText=
- "Scanned "+seen.size+" of "+total+" pairs";
+  let r=await fetch(API+"/api/status");
+  let d=await r.json();
+
+  if(d.ok){
+   total=d.total_pairs;
+   document.getElementById("status").innerText=
+    "Connected | "+total+" USDT Pairs | Version "+d.version;
+  }else{
+   document.getElementById("status").innerText=
+    "API Error: "+d.error;
+  }
  }catch(e){
- document.getElementById("status").innerText="Error: "+e.message;
+  document.getElementById("status").innerText=
+   "Connection Error: "+e.message;
  }
- busy=false;
+}
+
+function notifySignal(symbol,tf,type){
+ let key=symbol+"-"+tf+"-"+type;
+ if(knownSignals.has(key))return;
+ knownSignals.add(key);
+
+ if("Notification" in window &&
+    Notification.permission==="granted"){
+  new Notification("Crypto Scanner: "+type,{
+   body:symbol+" | "+tf+" | Reversal Signal",
+   tag:key
+  });
+ }
+}
+
+function addRow(item){
+ let a=item["4h"]||{};
+ let b=item["1d"]||{};
+
+ let early4=a.early_signal||"WAIT";
+ let confirm4=a.confirmed_signal||"WAIT";
+ let early1=b.early_signal||"WAIT";
+ let confirm1=b.confirmed_signal||"WAIT";
+
+ if(early4==="EARLY BUY"||early4==="EARLY SELL")
+  notifySignal(item.symbol,"4H",early4);
+
+ if(confirm4==="CONFIRMED BUY"||confirm4==="CONFIRMED SELL")
+  notifySignal(item.symbol,"4H",confirm4);
+
+ if(early1==="EARLY BUY"||early1==="EARLY SELL")
+  notifySignal(item.symbol,"1D",early1);
+
+ if(confirm1==="CONFIRMED BUY"||confirm1==="CONFIRMED SELL")
+  notifySignal(item.symbol,"1D",confirm1);
+
+ let tr=document.createElement("tr");
+
+ tr.innerHTML=
+  "<td>"+item.symbol+"</td>"+
+  "<td>"+signalCell(early4)+"</td>"+
+  "<td>"+signalCell(confirm4)+"</td>"+
+  "<td>"+signalCell(early1)+"</td>"+
+  "<td>"+signalCell(confirm1)+"</td>"+
+  "<td>"+(a.rsi??"-")+"</td>";
+
+ document.getElementById("results").appendChild(tr);
+}
+
+async function scanBatch(){
+ if(scanning)return false;
+
+ scanning=true;
+
+ try{
+  let url=API+"/api/scan?offset="+offset+"&limit=40";
+  let response=await fetch(url);
+  let data=await response.json();
+
+  if(data.error)throw new Error(data.error);
+
+  if(!data.results)throw new Error("No scan results");
+
+  data.results.forEach(addRow);
+
+  offset=data.next_offset;
+  total=data.total;
+
+  document.getElementById("progress").innerText=
+   "Scanned "+Math.min(offset||total,total)+
+   " / "+total+" pairs";
+
+  let rows=document.querySelectorAll("#results tr").length;
+
+  document.getElementById("summary").innerText=
+   "Pairs displayed: "+rows;
+
+  return !data.done;
+
+ }catch(e){
+  document.getElementById("progress").innerText=
+   "Scan Error: "+e.message;
+  return false;
+
+ }finally{
+  scanning=false;
+ }
+}
+
+async function scanNext(){
+ if(scanning)return;
+ if(offset===0)document.getElementById("results").innerHTML="";
+ await scanBatch();
 }
 
 async function scanAll(){
- while(offset!==0 || seen.size===0){
- await scan();
- if(offset===0)break;
+ if(scanning)return;
+
+ if(offset===0)
+  document.getElementById("results").innerHTML="";
+
+ while(offset<total || offset===0){
+  let more=await scanBatch();
+  if(!more)break;
+  await new Promise(resolve=>setTimeout(resolve,500));
  }
 }
 
-async function notify(){
+async function enableAlerts(){
  if(!("Notification" in window)){
- alert("Notifications not supported");
- return;
+  alert("This browser does not support notifications.");
+  return;
  }
- let p=await Notification.requestPermission();
- alert("Notification permission: "+p);
+
+ let permission=await Notification.requestPermission();
+
+ if(permission==="granted"){
+  alert("Notifications enabled. Keep Scanner open for alerts.");
+ }else{
+  alert("Notification permission was not granted.");
+ }
 }
+
+checkStatus();
 </script>
+
 </body>
 </html>
