@@ -7,14 +7,24 @@ import time
 
 app = Flask(__name__, static_folder="static")
 
-BASE = "BASE = "https://data-api.binance.vision"
-TIMEOUT = 12
+# Binance Public API endpoints: automatic fallback
+BINANCE_BASES = [
+    "https://data-api.binance.vision",
+    "https://api-gcp.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com",
+    "https://api4.binance.com",
+    "https://api.binance.com"
+]
+
+TIMEOUT = 10
 
 SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT",
-    "DOGEUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "AVAXUSDT",
-    "DOTUSDT", "LTCUSDT", "BCHUSDT", "NEARUSDT", "ATOMUSDT",
-    "DOGEBTC"
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT",
+    "SOLUSDT", "DOGEUSDT", "ADAUSDT", "TRXUSDT",
+    "LINKUSDT", "AVAXUSDT", "DOTUSDT", "LTCUSDT",
+    "BCHUSDT", "NEARUSDT", "ATOMUSDT", "DOGEBTC"
 ]
 
 INTERVALS = {
@@ -25,23 +35,46 @@ INTERVALS = {
 
 
 def get_json(path, params=None):
-    response = requests.get(
-        BASE + path,
-        params=params,
-        timeout=TIMEOUT,
-        headers={"User-Agent": "UniversalCryptoReversalScanner/2.0"}
+    errors = []
+
+    for base in BINANCE_BASES:
+        try:
+            response = requests.get(
+                base + path,
+                params=params,
+                timeout=TIMEOUT,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept": "application/json"
+                }
+            )
+
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as exc:
+            errors.append(
+                base + " : " + str(exc)[:120]
+            )
+
+    raise Exception(
+        "All Binance Public API endpoints failed: "
+        + " | ".join(errors[-3:])
     )
-    response.raise_for_status()
-    return response.json()
 
 
 def fetch_klines(symbol, interval, limit=100):
+
     raw = get_json(
         "/api/v3/klines",
-        {"symbol": symbol, "interval": interval, "limit": limit}
+        {
+            "symbol": symbol,
+            "interval": interval,
+            "limit": limit
+        }
     )
 
-    # अंतिम कैंडल को हटाते हैं क्योंकि वह अभी बन रही हो सकती है।
+    # Ignore currently forming candle
     if len(raw) > 1:
         raw = raw[:-1]
 
@@ -62,19 +95,25 @@ def fetch_klines(symbol, interval, limit=100):
 
 
 def ema(values, period):
+
     if len(values) < period:
         return None
 
     alpha = 2.0 / (period + 1.0)
+
     value = sum(values[:period]) / period
 
     for item in values[period:]:
-        value = item * alpha + value * (1.0 - alpha)
+        value = (
+            item * alpha
+            + value * (1.0 - alpha)
+        )
 
     return value
 
 
 def rsi_series(values, period=14):
+
     if len(values) <= period:
         return []
 
@@ -82,7 +121,9 @@ def rsi_series(values, period=14):
     losses = []
 
     for i in range(1, len(values)):
+
         change = values[i] - values[i - 1]
+
         gains.append(max(change, 0.0))
         losses.append(max(-change, 0.0))
 
@@ -92,15 +133,20 @@ def rsi_series(values, period=14):
     result = [None] * period
 
     def calculate_rsi(gain, loss):
+
         if loss == 0:
             return 100.0 if gain > 0 else 50.0
 
         rs = gain / loss
+
         return 100.0 - (100.0 / (1.0 + rs))
 
-    result.append(calculate_rsi(avg_gain, avg_loss))
+    result.append(
+        calculate_rsi(avg_gain, avg_loss)
+    )
 
     for i in range(period, len(gains)):
+
         avg_gain = (
             avg_gain * (period - 1) + gains[i]
         ) / period
@@ -109,7 +155,9 @@ def rsi_series(values, period=14):
             avg_loss * (period - 1) + losses[i]
         ) / period
 
-        result.append(calculate_rsi(avg_gain, avg_loss))
+        result.append(
+            calculate_rsi(avg_gain, avg_loss)
+        )
 
     return result
 
@@ -117,6 +165,7 @@ def rsi_series(values, period=14):
 def reversal_analysis(candles):
 
     if len(candles) < 55:
+
         return {
             "signal": "WAIT",
             "reason": "कम candles",
@@ -132,7 +181,10 @@ def reversal_analysis(candles):
     rsis = rsi_series(closes, 14)
 
     rsi_now = rsis[-1] if rsis else None
-    rsi_prev = rsis[-2] if len(rsis) > 1 else None
+
+    rsi_prev = (
+        rsis[-2] if len(rsis) > 1 else None
+    )
 
     ema20_now = ema(closes, 20)
     ema50_now = ema(closes, 50)
@@ -140,7 +192,7 @@ def reversal_analysis(candles):
     ema20_prev = ema(closes[:-1], 20)
     ema50_prev = ema(closes[:-1], 50)
 
-    # पिछले 30 बंद candles से Support और Resistance
+    # Previous 30 closed candles
     history = candles[-31:-1]
 
     support = min(c["low"] for c in history)
@@ -166,46 +218,53 @@ def reversal_analysis(candles):
     )
 
     lower_wick = (
-        min(last["open"], last["close"]) - last["low"]
+        min(last["open"], last["close"])
+        - last["low"]
     )
 
     upper_wick = (
-        last["high"] - max(last["open"], last["close"])
+        last["high"]
+        - max(last["open"], last["close"])
     )
 
-    lower_wick_ratio = max(0.0, lower_wick / candle_range)
-    upper_wick_ratio = max(0.0, upper_wick / candle_range)
+    lower_wick_ratio = max(
+        0.0, lower_wick / candle_range
+    )
 
-    # Support पर Bullish Rejection
+    upper_wick_ratio = max(
+        0.0, upper_wick / candle_range
+    )
+
+    # Support rejection
     bullish_rejection = (
         near_support
         and last["close"] > last["open"]
         and lower_wick_ratio >= 0.65
     )
 
-    # Resistance पर Bearish Rejection
+    # Resistance rejection
     bearish_rejection = (
         near_resistance
         and last["close"] < last["open"]
         and upper_wick_ratio >= 0.65
     )
 
-    # RSI 14: 30 के ऊपर वापसी और 70 के नीचे गिरावट
+    # RSI 14 crossing
     rsi_bull_cross = (
         rsi_prev is not None
-        and rsi_prev <= 30
         and rsi_now is not None
+        and rsi_prev <= 30
         and rsi_now > 30
     )
 
     rsi_bear_cross = (
         rsi_prev is not None
-        and rsi_prev >= 70
         and rsi_now is not None
+        and rsi_prev >= 70
         and rsi_now < 70
     )
 
-    # RSI Divergence
+    # RSI divergence
     bull_div = False
     bear_div = False
 
@@ -214,8 +273,15 @@ def reversal_analysis(candles):
         a = candles[-10:-5]
         b = candles[-5:]
 
-        ra = [x for x in rsis[-10:-5] if x is not None]
-        rb = [x for x in rsis[-5:] if x is not None]
+        ra = [
+            x for x in rsis[-10:-5]
+            if x is not None
+        ]
+
+        rb = [
+            x for x in rsis[-5:]
+            if x is not None
+        ]
 
         if ra and rb:
 
@@ -231,22 +297,22 @@ def reversal_analysis(candles):
                 and max(rb) < max(ra)
             )
 
-    # EMA 20 / EMA 50 Crossover
+    # EMA crossover
     ema_bull_cross = (
         ema20_prev is not None
         and ema50_prev is not None
-        and ema20_prev <= ema50_prev
         and ema20_now > ema50_now
+        and ema20_prev <= ema50_prev
     )
 
     ema_bear_cross = (
         ema20_prev is not None
         and ema50_prev is not None
-        and ema20_prev >= ema50_prev
         and ema20_now < ema50_now
+        and ema20_prev >= ema50_prev
     )
 
-    # Breakout और Retest
+    # Breakout and retest
     breakout_retest_buy = (
         last["close"] > resistance
         and last["low"] <= resistance * (1 + tolerance)
@@ -260,17 +326,20 @@ def reversal_analysis(candles):
     bull_rsi_ok = rsi_bull_cross or bull_div
     bear_rsi_ok = rsi_bear_cross or bear_div
 
-    # Reversal Confirmation
     bull_confirm = (
-        bullish_rejection and (bull_rsi_ok or ema_bull_cross)
+        bullish_rejection
+        and (bull_rsi_ok or ema_bull_cross)
     ) or (
-        breakout_retest_buy and (bull_rsi_ok or ema_bull_cross)
+        breakout_retest_buy
+        and (bull_rsi_ok or ema_bull_cross)
     )
 
     bear_confirm = (
-        bearish_rejection and (bear_rsi_ok or ema_bear_cross)
+        bearish_rejection
+        and (bear_rsi_ok or ema_bear_cross)
     ) or (
-        breakout_retest_sell and (bear_rsi_ok or ema_bear_cross)
+        breakout_retest_sell
+        and (bear_rsi_ok or ema_bear_cross)
     )
 
     if bull_confirm and not bear_confirm:
@@ -316,8 +385,16 @@ def reversal_analysis(candles):
 
     return {
         "signal": signal,
-        "reason": ", ".join(reasons) if reasons else "Reversal setup not confirmed",
-        "rsi": round(rsi_now, 2) if rsi_now is not None else None,
+        "reason": (
+            ", ".join(reasons)
+            if reasons
+            else "Reversal setup not confirmed"
+        ),
+        "rsi": (
+            round(rsi_now, 2)
+            if rsi_now is not None
+            else None
+        ),
         "support": support,
         "resistance": resistance,
         "price": price,
@@ -352,28 +429,34 @@ def scan_symbol(symbol):
         four_h = result["4H"]["signal"]
         one_d = result["1D"]["signal"]
 
-        # 4H मुख्य Signal + 1D Confirmation
         if four_h == "BUY" and one_d == "BUY":
+
             result["strong"] = "STRONG BUY"
 
         elif four_h == "SELL" and one_d == "SELL":
+
             result["strong"] = "STRONG SELL"
 
         else:
+
             result["strong"] = "WAIT"
 
         return result
 
     except Exception as exc:
 
-        result["error"] = str(exc)[:180]
+        result["error"] = str(exc)[:500]
 
         return result
 
 
 @app.route("/")
 def home():
-    return send_from_directory("static", "index.html")
+
+    return send_from_directory(
+        "static",
+        "index.html"
+    )
 
 
 @app.route("/health")
@@ -392,8 +475,8 @@ def api_scan():
 
     rows = []
 
-    # कम concurrency ताकि Render पर memory load सीमित रहे
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    # Limited workers to protect Render memory
+    with ThreadPoolExecutor(max_workers=3) as pool:
 
         futures = {
             pool.submit(scan_symbol, symbol): symbol
@@ -401,6 +484,7 @@ def api_scan():
         }
 
         for future in as_completed(futures):
+
             rows.append(future.result())
 
     order = {
@@ -413,18 +497,34 @@ def api_scan():
     )
 
     return jsonify({
+
         "status": "success",
+
         "count": len(rows),
+
         "symbols": rows,
-        "strategy": "Support/Resistance + RSI14 + divergence + EMA20/50 + breakout/retest",
+
+        "strategy": (
+            "Support/Resistance + RSI14 + "
+            "Divergence + EMA20/50 + Breakout/Retest"
+        ),
+
         "timeframes": [
             "1H Early",
             "4H Main Reversal",
             "1D Confirmation"
         ],
+
         "closed_candles_only": True,
-        "scan_seconds": round(time.time() - started, 2),
-        "updated_utc": datetime.now(timezone.utc).isoformat()
+
+        "scan_seconds": round(
+            time.time() - started, 2
+        ),
+
+        "updated_utc": datetime.now(
+            timezone.utc
+        ).isoformat()
+
     })
 
 
