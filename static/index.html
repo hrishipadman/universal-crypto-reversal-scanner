@@ -1,420 +1,454 @@
 
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-
 <head>
-
-<meta charset="utf-8">
-
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Universal Crypto Reversal Scanner</title>
 
 <style>
-
-:root {
-    color-scheme: dark;
-    --bg: #0b1020;
-    --panel: #141c31;
-    --line: #26334e;
-    --muted: #9eacc7;
-    --text: #f3f6ff;
-    --green: #25c685;
-    --red: #ff6677;
-    --yellow: #f4c45e;
-}
-
 * {
     box-sizing: border-box;
 }
 
 body {
     margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 14px Arial, sans-serif;
+    padding: 18px;
+    background: #0b1020;
+    color: #e8edf7;
+    font-family: Arial, sans-serif;
 }
 
-header {
-    padding: 20px 16px;
-    background: #10182b;
-    border-bottom: 1px solid var(--line);
-}
-
-h1 {
-    font-size: 21px;
-    margin: 0 0 7px;
-}
-
-p {
-    margin: 0;
-    color: var(--muted);
-    line-height: 1.5;
-}
-
-main {
-    padding: 16px;
-    max-width: 1400px;
+.container {
+    max-width: 1450px;
     margin: auto;
 }
 
-.top {
+.header {
     display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
+    justify-content: space-between;
     align-items: center;
-    margin-bottom: 14px;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+h1 {
+    font-size: 23px;
+    margin: 0 0 7px;
+}
+
+.subtitle {
+    color: #9caac2;
+    font-size: 13px;
 }
 
 button {
-    background: #2878ee;
+    background: #2563eb;
     color: white;
     border: 0;
+    padding: 11px 17px;
     border-radius: 8px;
-    padding: 11px 16px;
     font-weight: bold;
+    cursor: pointer;
 }
 
-#status {
-    color: var(--muted);
+button:disabled {
+    opacity: 0.5;
 }
 
 .cards {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-    margin: 14px 0;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
 }
 
 .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
+    background: #151d32;
+    border: 1px solid #27344e;
+    padding: 16px;
+    border-radius: 12px;
+}
+
+.card-label {
+    color: #9caac2;
+    font-size: 12px;
+    margin-bottom: 9px;
+}
+
+.card-value {
+    font-size: 25px;
+    font-weight: bold;
+}
+
+.green {
+    color: #22c55e;
+}
+
+.red {
+    color: #ef4444;
+}
+
+.yellow {
+    color: #facc15;
+}
+
+.status-line {
+    background: #151d32;
     padding: 13px;
-    border-radius: 10px;
+    border-radius: 9px;
+    margin-bottom: 15px;
+    color: #aebbd0;
+    font-size: 13px;
 }
 
-.card b {
-    display: block;
-    font-size: 18px;
-    margin-top: 5px;
-}
-
-.tablewrap {
+.table-wrap {
     overflow-x: auto;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
+    background: #151d32;
+    border: 1px solid #27344e;
+    border-radius: 12px;
 }
 
 table {
-    border-collapse: collapse;
     width: 100%;
-    min-width: 900px;
+    min-width: 1150px;
+    border-collapse: collapse;
 }
 
 th, td {
-    padding: 12px 10px;
-    text-align: left;
-    border-bottom: 1px solid var(--line);
+    padding: 13px 11px;
+    border-bottom: 1px solid #27344e;
+    text-align: center;
+    font-size: 12px;
     white-space: nowrap;
 }
 
 th {
-    color: var(--muted);
-    font-size: 12px;
-    background: #111a2d;
-    position: sticky;
-    top: 0;
+    color: #aebbd0;
+    background: #1c2942;
+    font-size: 11px;
+}
+
+td:first-child {
+    font-weight: bold;
+    text-align: left;
 }
 
 .signal {
+    display: inline-block;
+    padding: 6px 9px;
+    border-radius: 6px;
     font-weight: bold;
 }
 
-.BUY, .STRONGBUY {
-    color: var(--green);
+.buy {
+    background: #123d2c;
+    color: #4ade80;
 }
 
-.SELL, .STRONGSELL {
-    color: var(--red);
+.sell {
+    background: #481f29;
+    color: #fb7185;
 }
 
-.WAIT {
-    color: var(--yellow);
+.wait {
+    background: #39321a;
+    color: #facc15;
 }
 
-.small {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 12px;
+.strong-buy {
+    background: #14532d;
+    color: #86efac;
+}
+
+.strong-sell {
+    background: #7f1d1d;
+    color: #fecaca;
 }
 
 .error {
-    color: var(--red);
+    color: #fb7185;
 }
 
-@media(max-width:600px) {
+.reason {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #aebbd0;
+}
+
+.footer {
+    color: #8290a8;
+    font-size: 12px;
+    margin-top: 16px;
+    line-height: 1.7;
+}
+
+@media (max-width: 700px) {
+    body {
+        padding: 11px;
+    }
 
     h1 {
-        font-size: 18px;
+        font-size: 19px;
     }
 
     .cards {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, 1fr);
     }
 
-    .card:last-child {
-        grid-column: span 2;
+    .card-value {
+        font-size: 21px;
     }
-
 }
-
 </style>
-
 </head>
 
 <body>
+<div class="container">
 
-<header>
+    <div class="header">
+        <div>
+            <h1>Universal Crypto Reversal Scanner</h1>
+            <div class="subtitle">
+                1H Early Signal | 4H Main Reversal | 1D Confirmation
+            </div>
+        </div>
 
-<h1>Universal Crypto Reversal Scanner</h1>
+        <button id="refreshBtn" onclick="loadScanner()">
+            Refresh Scanner
+        </button>
+    </div>
 
-<p>
-Support / Resistance • RSI 14 • Divergence • EMA 20/50 • Breakout & Retest
-</p>
+    <div class="cards">
+        <div class="card">
+            <div class="card-label">TOTAL COINS</div>
+            <div class="card-value" id="total">--</div>
+        </div>
 
-</header>
+        <div class="card">
+            <div class="card-label">STRONG BUY</div>
+            <div class="card-value green" id="strongBuy">--</div>
+        </div>
 
-<main>
+        <div class="card">
+            <div class="card-label">STRONG SELL</div>
+            <div class="card-value red" id="strongSell">--</div>
+        </div>
 
-<div class="top">
+        <div class="card">
+            <div class="card-label">WAIT / NO STRONG SIGNAL</div>
+            <div class="card-value yellow" id="waiting">--</div>
+        </div>
+    </div>
 
-<button id="scanBtn" onclick="loadScan()">
-SCAN NOW
-</button>
+    <div class="status-line" id="status">
+        Connecting to scanner...
+    </div>
 
-<span id="status">
-Scanner ready
-</span>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>COIN</th>
+                    <th>1H EARLY</th>
+                    <th>1H RSI</th>
+                    <th>1H EMA 30/50</th>
+                    <th>4H MAIN</th>
+                    <th>4H RSI</th>
+                    <th>1D CONFIRM</th>
+                    <th>1D RSI</th>
+                    <th>SUPPORT (4H)</th>
+                    <th>RESISTANCE (4H)</th>
+                    <th>STRONG SIGNAL</th>
+                </tr>
+            </thead>
 
-</div>
+            <tbody id="coinRows">
+                <tr>
+                    <td colspan="11">Loading scanner data...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 
-<div class="cards">
-
-<div class="card">
-Coins scanned
-<b id="count">—</b>
-</div>
-
-<div class="card">
-Strong Buy
-<b id="buys">—</b>
-</div>
-
-<div class="card">
-Strong Sell
-<b id="sells">—</b>
-</div>
-
-</div>
-
-<div class="tablewrap">
-
-<table>
-
-<thead>
-
-<tr>
-
-<th>COIN</th>
-
-<th>1H EARLY</th>
-
-<th>4H MAIN REVERSAL</th>
-
-<th>1D CONFIRM</th>
-
-<th>RSI 4H</th>
-
-<th>SUPPORT (4H)</th>
-
-<th>RESISTANCE (4H)</th>
-
-<th>STRONG SIGNAL</th>
-
-</tr>
-
-</thead>
-
-<tbody id="rows">
-
-<tr>
-<td colspan="8">
-Press SCAN NOW to load market data.
-</td>
-</tr>
-
-</tbody>
-
-</table>
+    <div class="footer">
+        <b>FINAL STRATEGY</b><br>
+        1H Early BUY: Bullish candle + RSI crosses above 30 + Support zone.<br>
+        1H Early SELL: Bearish candle + RSI crosses below 70 + Resistance zone.<br>
+        Strong BUY: 4H RSI BUY + 4H EMA 30/50 bullish + 1D BUY confirmation.<br>
+        Strong SELL: 4H RSI SELL + 4H EMA 30/50 bearish + 1D SELL confirmation.<br>
+        Signals use closed candles only. WAIT means confirmation is incomplete.
+    </div>
 
 </div>
-
-<p class="small">
-
-Signals use completed candles only.
-1H is an early alert; 4H is the main reversal timeframe;
-1D is confirmation.
-
-This is an analytical scanner, not financial advice.
-Confirm signals independently before trading.
-
-</p>
-
-</main>
 
 <script>
+function signalClass(value) {
+    if (!value) return "wait";
 
-function fmt(value) {
+    const s = String(value).toUpperCase();
 
-    if (value === null || value === undefined) {
-        return "—";
+    if (s === "BUY") return "buy";
+    if (s === "SELL") return "sell";
+    if (s === "STRONG BUY") return "strong-buy";
+    if (s === "STRONG SELL") return "strong-sell";
+
+    return "wait";
+}
+
+function signalBadge(value) {
+    const signal = value || "WAIT";
+    return `<span class="signal ${signalClass(signal)}">${signal}</span>`;
+}
+
+function formatNumber(value) {
+    if (value === null || value === undefined || value === "") {
+        return "--";
     }
 
-    let number = Number(value);
+    const n = Number(value);
 
-    return Number.isFinite(number)
-        ? number.toLocaleString(undefined, {
-            maximumFractionDigits: 8
-        })
-        : "—";
+    if (!Number.isFinite(n)) return "--";
 
+    if (n !== 0 && Math.abs(n) < 0.0001) {
+        return n.toFixed(10);
+    }
+
+    return n.toLocaleString("en-US", {
+        maximumFractionDigits: 6
+    });
 }
 
-
-function cls(value) {
-
-    return String(value || "WAIT").replace(/\s/g, "");
-
+function formatRSI(value) {
+    if (value === null || value === undefined) return "--";
+    return Number(value).toFixed(2);
 }
 
+function renderRows(results) {
+    const tbody = document.getElementById("coinRows");
 
-function cell(value) {
+    if (!results || results.length === 0) {
+        tbody.innerHTML =
+            '<tr><td colspan="11">No scanner data available</td></tr>';
+        return;
+    }
 
-    return `<span class="signal ${cls(value)}">
-        ${value || "WAIT"}
-    </span>`;
+    tbody.innerHTML = results.map(item => {
+        const oneH = item["1H"] || {};
+        const fourH = item["4H"] || {};
+        const oneD = item["1D"] || {};
 
+        const isError = item.status !== "OK";
+
+        if (isError) {
+            return `
+                <tr>
+                    <td>${item.symbol}</td>
+                    <td colspan="9" class="error">DATA ERROR</td>
+                    <td>${signalBadge("WAIT")}</td>
+                </tr>
+            `;
+        }
+
+        return `
+            <tr>
+                <td>${item.symbol}</td>
+
+                <td title="${oneH.reason || ""}">
+                    ${signalBadge(oneH.signal)}
+                </td>
+
+                <td>${formatRSI(oneH.rsi)}</td>
+
+                <td title="EMA30: ${formatNumber(oneH.ema30)} | EMA50: ${formatNumber(oneH.ema50)}">
+                    ${oneH.ema_bias || "--"}
+                </td>
+
+                <td title="${fourH.reason || ""}">
+                    ${signalBadge(fourH.signal)}
+                </td>
+
+                <td>${formatRSI(fourH.rsi)}</td>
+
+                <td title="${oneD.reason || ""}">
+                    ${signalBadge(oneD.signal)}
+                </td>
+
+                <td>${formatRSI(oneD.rsi)}</td>
+
+                <td>${formatNumber(item.support)}</td>
+
+                <td>${formatNumber(item.resistance)}</td>
+
+                <td title="4H + 1D confirmation">
+                    ${signalBadge(item.strong)}
+                </td>
+            </tr>
+        `;
+    }).join("");
 }
 
-
-async function loadScan() {
-
-    const btn = document.getElementById("scanBtn");
-
+async function loadScanner() {
+    const button = document.getElementById("refreshBtn");
     const status = document.getElementById("status");
 
-    btn.disabled = true;
-
-    status.textContent = "Scanning closed candles…";
+    button.disabled = true;
+    button.textContent = "Scanning...";
+    status.textContent = "Fetching latest closed-candle data...";
 
     try {
-
-        const response = await fetch(
-            "/api/scan",
-            { cache: "no-store" }
-        );
+        const response = await fetch("/api/scan", {
+            cache: "no-store"
+        });
 
         if (!response.ok) {
-            throw new Error("API error " + response.status);
+            throw new Error("Server response: " + response.status);
         }
 
         const data = await response.json();
 
         if (data.status !== "success") {
-            throw new Error("Scan failed");
+            throw new Error("Scanner returned an unsuccessful response");
         }
 
-        const list = data.symbols || [];
+        document.getElementById("total").textContent =
+            data.total ?? 0;
 
-        document.getElementById("count").textContent =
-            list.length;
+        document.getElementById("strongBuy").textContent =
+            data.strong_buy ?? 0;
 
-        document.getElementById("buys").textContent =
-            list.filter(x => x.strong === "STRONG BUY").length;
+        document.getElementById("strongSell").textContent =
+            data.strong_sell ?? 0;
 
-        document.getElementById("sells").textContent =
-            list.filter(x => x.strong === "STRONG SELL").length;
+        const waiting =
+            (data.total || 0) -
+            (data.strong_buy || 0) -
+            (data.strong_sell || 0);
 
+        document.getElementById("waiting").textContent =
+            Math.max(waiting, 0);
 
-        document.getElementById("rows").innerHTML =
-            list.map(x => {
+        renderRows(data.results);
 
-                if (x.error) {
-
-                    return `
-                    <tr>
-                        <td>${x.symbol}</td>
-                        <td colspan="7" class="error">
-                            ${x.error}
-                        </td>
-                    </tr>
-                    `;
-
-                }
-
-                const h = x["1H"] || {};
-                const f = x["4H"] || {};
-                const d = x["1D"] || {};
-
-                return `
-                <tr>
-
-                    <td><b>${x.symbol}</b></td>
-
-                    <td>${cell(h.signal)}</td>
-
-                    <td>${cell(f.signal)}</td>
-
-                    <td>${cell(d.signal)}</td>
-
-                    <td>${fmt(f.rsi)}</td>
-
-                    <td>${fmt(f.support)}</td>
-
-                    <td>${fmt(f.resistance)}</td>
-
-                    <td>${cell(x.strong)}</td>
-
-                </tr>
-                `;
-
-            }).join("");
-
+        const successful = data.successful ?? 0;
+        const failed = data.failed ?? 0;
 
         status.textContent =
-            `Updated: ${new Date().toLocaleTimeString()} • ${data.scan_seconds}s`;
-
+            `Scanner Active | ${successful} successful | ${failed} failed | Last updated: ${new Date().toLocaleTimeString()}`;
 
     } catch (error) {
-
-        status.textContent = "Error: " + error.message;
-
-        status.className = "error";
-
+        status.textContent = "Scanner Error: " + error.message;
+        status.classList.add("error");
     } finally {
-
-        btn.disabled = false;
-
+        button.disabled = false;
+        button.textContent = "Refresh Scanner";
     }
-
 }
 
-
-loadScan();
-
+loadScanner();
 </script>
 
 </body>
-
 </html>
