@@ -9,7 +9,10 @@ from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-# Binance public market data endpoint
+# =====================================
+# BINANCE CONFIGURATION
+# =====================================
+
 BASE = os.getenv(
     "BINANCE_BASE_URL",
     "https://data-api.binance.vision"
@@ -17,10 +20,10 @@ BASE = os.getenv(
 
 SESSION = requests.Session()
 SESSION.headers.update({
-    "User-Agent": "UniversalCryptoReversalScanner/1.0"
+    "User-Agent": "UniversalCryptoReversalScanner/2.0"
 })
 
-app = FastAPI(title="Universal Crypto Reversal Scanner")
+app = FastAPI(title="Universal Crypto Reversal Scanner V2")
 
 app.mount(
     "/static",
@@ -31,6 +34,10 @@ app.mount(
 universe = {"at": 0, "symbols": []}
 lock = threading.Lock()
 
+
+# =====================================
+# BINANCE API
+# =====================================
 
 def api_get(path, params=None):
     response = SESSION.get(
@@ -60,10 +67,6 @@ def get_symbols():
             item.get("status") == "TRADING"
             and item.get("quoteAsset") == "USDT"
             and item.get("isSpotTradingAllowed", True)
-            and not any(
-                word in name
-                for word in ["UPUSDT", "DOWNUSDT", "BULLUSDT", "BEARUSDT"]
-            )
         ):
             symbols.append(name)
 
@@ -76,37 +79,44 @@ def get_symbols():
     return symbols
 
 
+# =====================================
+# TECHNICAL INDICATORS
+# =====================================
+
 def ema(values, period):
     if len(values) < period:
         return None
 
     multiplier = 2 / (period + 1)
-    value = sum(values[:period]) / period
+    result = sum(values[:period]) / period
 
     for price in values[period:]:
-        value = price * multiplier + value * (1 - multiplier)
+        result = (
+            price * multiplier
+            + result * (1 - multiplier)
+        )
 
-    return value
+    return result
 
 
 def rsi(values, period=14):
     if len(values) < period + 2:
         return None, None
 
-    gains = []
-    losses = []
+    changes = [
+        values[i] - values[i - 1]
+        for i in range(1, len(values))
+    ]
 
-    for i in range(1, len(values)):
-        change = values[i] - values[i - 1]
-        gains.append(max(change, 0))
-        losses.append(max(-change, 0))
+    gains = [max(x, 0) for x in changes]
+    losses = [max(-x, 0) for x in changes]
 
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
 
-    result = []
+    output = []
 
-    for i in range(period, len(gains)):
+    for i in range(period, len(changes)):
         avg_gain = (
             avg_gain * (period - 1) + gains[i]
         ) / period
@@ -115,14 +125,23 @@ def rsi(values, period=14):
             avg_loss * (period - 1) + losses[i]
         ) / period
 
-        rs = avg_gain / avg_loss if avg_loss else 100
-        result.append(100 - (100 / (1 + rs)))
+        if avg_loss == 0:
+            value = 100
+        else:
+            rs = avg_gain / avg_loss
+            value = 100 - (100 / (1 + rs))
 
-    if len(result) < 2:
+        output.append(value)
+
+    if len(output) < 2:
         return None, None
 
-    return result[-1], result[-2]
+    return output[-1], output[-2]
 
+
+# =====================================
+# REVERSAL ANALYSIS
+# =====================================
 
 def analyze(symbol, interval):
 
@@ -142,8 +161,11 @@ def analyze(symbol, interval):
         return None
 
     closes = [float(c[4]) for c in candles]
-    highs = [float(c[2]) for c in candles[-30:]]
-    lows = [float(c[3]) for c in candles[-30:]]
+    opens = [float(c[1]) for c in candles]
+    highs = [float(c[2]) for c in candles]
+    lows = [float(c[3]) for c in candles]
+
+    price = closes[-1]
 
     current_rsi, previous_rsi = rsi(closes)
 
@@ -153,77 +175,139 @@ def analyze(symbol, interval):
     previous_ema20 = ema(closes[:-1], 20)
     previous_ema50 = ema(closes[:-1], 50)
 
-    price = closes[-1]
+    old_ema20 = ema(closes[:-2], 20)
 
-    support = min(lows)
-    resistance = max(highs)
+    if None in (
+        current_rsi,
+        previous_rsi,
+        ema20,
+        ema50,
+        previous_ema20,
+        previous_ema50,
+        old_ema20
+    ):
+        return None
 
-    near_support = price <= support * 1.018
-    near_resistance = price >= resistance * 0.982
+    # Support and resistance from previous 30 candles
+    support = min(lows[-31:-1])
+    resistance = max(highs[-31:-1])
 
-    rsi_bull = (
-        previous_rsi is not None
-        and previous_rsi < 30
-        and current_rsi >= 30
+    # Current candle information
+    candle_open = opens[-1]
+    candle_close = closes[-1]
+    candle_high = highs[-1]
+    candle_low = lows[-1]
+
+    candle_range = max(
+        candle_high - candle_low,
+        1e-12
     )
 
-    rsi_bear = (
-        previous_rsi is not None
-        and previous_rsi > 70
-        and current_rsi <= 70
+    bullish_candle = candle_close > candle_open
+    bearish_candle = candle_close < candle_open
+
+    bullish_rejection = (
+        bullish_candle
+        and (candle_close - candle_low) / candle_range >= 0.65
     )
 
-    ema_bull = (
+    bearish_rejection = (
+        bearish_candle
+        and (candle_high - candle_close) / candle_range >= 0.65
+    )
+
+    near_support = price <= support * 1.025
+    near_resistance = price >= resistance * 0.975
+
+    # EMA direction
+    ema_rising = ema20 > old_ema20
+    ema_falling = ema20 < old_ema20
+
+    ema_bull_cross = (
         previous_ema20 <= previous_ema50
         and ema20 > ema50
     )
 
-    ema_bear = (
+    ema_bear_cross = (
         previous_ema20 >= previous_ema50
         and ema20 < ema50
     )
 
-    last = candles[-1]
-
-    open_price = float(last[1])
-    high_price = float(last[2])
-    low_price = float(last[3])
-    close_price = float(last[4])
-
-    candle_range = max(high_price - low_price, 1e-12)
-
-    bullish_rejection = (
-        near_support
-        and close_price > open_price
-        and (close_price - low_price) / candle_range >= 0.65
+    # RSI reversal
+    rsi_turn_up = (
+        previous_rsi < 35
+        and current_rsi >= 35
     )
 
-    bearish_rejection = (
-        near_resistance
-        and close_price < open_price
-        and (high_price - close_price) / candle_range >= 0.65
+    rsi_turn_down = (
+        previous_rsi > 65
+        and current_rsi <= 65
     )
 
-    buy_score = (
-        int(rsi_bull)
-        + int(ema_bull)
-        + int(bullish_rejection)
+    rsi_bullish = current_rsi > 50
+    rsi_bearish = current_rsi < 50
+
+    # =================================
+    # EARLY BUY / SELL
+    # =================================
+
+    early_buy_score = sum([
+        rsi_turn_up or (
+            current_rsi < 40
+            and current_rsi > previous_rsi
+        ),
+        ema_rising and price > ema20,
+        near_support or bullish_rejection
+    ])
+
+    early_sell_score = sum([
+        rsi_turn_down or (
+            current_rsi > 60
+            and current_rsi < previous_rsi
+        ),
+        ema_falling and price < ema20,
+        near_resistance or bearish_rejection
+    ])
+
+    if early_buy_score >= 2 and early_buy_score > early_sell_score:
+        early_signal = "EARLY BUY"
+
+    elif early_sell_score >= 2 and early_sell_score > early_buy_score:
+        early_signal = "EARLY SELL"
+
+    else:
+        early_signal = "WAIT"
+
+    # =================================
+    # CONFIRMED BUY / SELL
+    # =================================
+
+    confirmed_buy = (
+        ema_bull_cross
+        and rsi_bullish
+        and (bullish_rejection or near_support)
     )
 
-    sell_score = (
-        int(rsi_bear)
-        + int(ema_bear)
-        + int(bearish_rejection)
+    confirmed_sell = (
+        ema_bear_cross
+        and rsi_bearish
+        and (bearish_rejection or near_resistance)
     )
 
-    if buy_score == 3:
-        signal = "STRONG BUY"
-    elif buy_score == 2:
-        signal = "BUY WATCH"
-    elif sell_score == 3:
-        signal = "STRONG SELL"
-    elif sell_score == 2:
-        signal = "SELL WATCH"
+    if confirmed_buy:
+        confirmed_signal = "CONFIRMED BUY"
+
+    elif confirmed_sell:
+        confirmed_signal = "CONFIRMED SELL"
+
+    else:
+        confirmed_signal = "WAIT"
+
+    # Backward compatible signal
+    if confirmed_signal != "WAIT":
+        signal = confirmed_signal
+    elif early_signal != "WAIT":
+        signal = early_signal
     else:
         signal = "WAIT"
 
@@ -232,30 +316,42 @@ def analyze(symbol, interval):
         "timeframe": interval,
         "price": price,
         "rsi": round(current_rsi, 2),
-        "ema20": ema20,
-        "ema50": ema50,
+        "ema20": round(ema20, 10),
+        "ema50": round(ema50, 10),
         "support": support,
         "resistance": resistance,
-        "buy_score": buy_score,
-        "sell_score": sell_score,
+        "early_signal": early_signal,
+        "confirmed_signal": confirmed_signal,
+        "early_buy_score": early_buy_score,
+        "early_sell_score": early_sell_score,
         "signal": signal
     }
 
+
+# =====================================
+# SCAN ONE COIN
+# =====================================
 
 def scan_one(symbol):
 
     results = {}
 
     for timeframe in ("4h", "1d"):
+
         try:
-            results[timeframe] = analyze(symbol, timeframe)
+            results[timeframe] = analyze(
+                symbol,
+                timeframe
+            )
 
         except Exception as error:
             results[timeframe] = {
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "signal": "DATA ERROR",
-                "error": str(error)[:140]
+                "early_signal": "DATA ERROR",
+                "confirmed_signal": "DATA ERROR",
+                "error": str(error)[:160]
             }
 
         time.sleep(0.04)
@@ -267,10 +363,18 @@ def scan_one(symbol):
     }
 
 
+# =====================================
+# HOME PAGE
+# =====================================
+
 @app.get("/")
 def home():
     return FileResponse("static/index.html")
 
+
+# =====================================
+# STATUS API
+# =====================================
 
 @app.get("/api/status")
 def status():
@@ -280,10 +384,24 @@ def status():
 
         return {
             "ok": True,
+            "version": "2.0",
             "exchange": "Binance Spot",
             "quote": "USDT",
             "total_pairs": len(symbols),
-            "timeframes": ["4h", "1d"]
+            "timeframes": ["4h", "1d"],
+            "indicators": [
+                "RSI 14",
+                "EMA 20",
+                "EMA 50",
+                "Support",
+                "Resistance"
+            ],
+            "signals": [
+                "EARLY BUY",
+                "EARLY SELL",
+                "CONFIRMED BUY",
+                "CONFIRMED SELL"
+            ]
         }
 
     except Exception as error:
@@ -292,6 +410,10 @@ def status():
             "error": str(error)
         }
 
+
+# =====================================
+# SCAN API
+# =====================================
 
 @app.get("/api/scan")
 def scan(
@@ -316,19 +438,29 @@ def scan(
 
         with ThreadPoolExecutor(max_workers=6) as executor:
 
-            futures = [
-                executor.submit(scan_one, symbol)
+            futures = {
+                executor.submit(scan_one, symbol): symbol
                 for symbol in batch
-            ]
+            }
 
             for future in as_completed(futures):
-                output.append(future.result())
+                try:
+                    output.append(future.result())
+                except Exception as error:
+                    symbol = futures[future]
+                    output.append({
+                        "symbol": symbol,
+                        "4h": None,
+                        "1d": None,
+                        "error": str(error)[:160]
+                    })
 
         output.sort(key=lambda x: x["symbol"])
 
         next_offset = offset + len(batch)
 
         return {
+            "version": "2.0",
             "total": len(symbols),
             "offset": offset,
             "next_offset": (
@@ -344,3 +476,15 @@ def scan(
             "error": str(error),
             "results": []
         }
+
+
+# =====================================
+# HEALTH CHECK
+# =====================================
+
+@app.get("/health")
+def health():
+    return {
+        "status": "online",
+        "version": "2.0"
+    }
