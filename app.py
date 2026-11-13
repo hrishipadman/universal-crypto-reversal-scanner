@@ -7,7 +7,7 @@ import time
 
 app = Flask(__name__, static_folder="static")
 
-BASE = "https://api.binance.com"
+BASE = "BASE = "https://data-api.binance.vision"
 TIMEOUT = 12
 
 SYMBOLS = [
