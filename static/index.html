@@ -1,125 +1,420 @@
 
-<!DOCTYPE html>
-<html lang="hi">
+<!doctype html>
+<html lang="en">
+
 <head>
-<meta charset="UTF-8">
+
+<meta charset="utf-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#10141f">
+
 <title>Universal Crypto Reversal Scanner</title>
+
 <style>
-*{box-sizing:border-box}
-body{margin:0;background:#10141f;color:#f1f5f9;font-family:Arial,sans-serif}
-header{padding:18px;background:#182235}
-h2{margin:0 0 7px;color:#60a5fa}
-.sub{font-size:13px;color:#aab6ca}
-.container{padding:12px}
-.status{padding:12px;background:#1b293d;border-radius:9px;margin-bottom:12px;font-size:13px;line-height:1.6}
-button{background:#2563eb;color:white;border:0;border-radius:8px;padding:11px 16px;font-size:14px}
-.table-wrap{overflow-x:auto;background:#182235;border-radius:10px;margin-top:14px}
-table{border-collapse:collapse;width:100%;min-width:1050px;font-size:13px}
-th,td{padding:12px 10px;text-align:center;border-bottom:1px solid #29364a;white-space:nowrap}
-th{background:#24344c;color:#cbd5e1}
-td:first-child{text-align:left;font-weight:bold}
-.buy,.strongbuy{color:#4ade80;font-weight:bold}
-.sell,.strongsell{color:#fb7185;font-weight:bold}
-.wait{color:#aab6ca}
-.error{color:#fbbf24}
-.note{font-size:12px;color:#9ca3af;line-height:1.7;margin-top:14px}
+
+:root {
+    color-scheme: dark;
+    --bg: #0b1020;
+    --panel: #141c31;
+    --line: #26334e;
+    --muted: #9eacc7;
+    --text: #f3f6ff;
+    --green: #25c685;
+    --red: #ff6677;
+    --yellow: #f4c45e;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px Arial, sans-serif;
+}
+
+header {
+    padding: 20px 16px;
+    background: #10182b;
+    border-bottom: 1px solid var(--line);
+}
+
+h1 {
+    font-size: 21px;
+    margin: 0 0 7px;
+}
+
+p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+main {
+    padding: 16px;
+    max-width: 1400px;
+    margin: auto;
+}
+
+.top {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+button {
+    background: #2878ee;
+    color: white;
+    border: 0;
+    border-radius: 8px;
+    padding: 11px 16px;
+    font-weight: bold;
+}
+
+#status {
+    color: var(--muted);
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 13px;
+    border-radius: 10px;
+}
+
+.card b {
+    display: block;
+    font-size: 18px;
+    margin-top: 5px;
+}
+
+.tablewrap {
+    overflow-x: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 900px;
+}
+
+th, td {
+    padding: 12px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+th {
+    color: var(--muted);
+    font-size: 12px;
+    background: #111a2d;
+    position: sticky;
+    top: 0;
+}
+
+.signal {
+    font-weight: bold;
+}
+
+.BUY, .STRONGBUY {
+    color: var(--green);
+}
+
+.SELL, .STRONGSELL {
+    color: var(--red);
+}
+
+.WAIT {
+    color: var(--yellow);
+}
+
+.small {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 12px;
+}
+
+.error {
+    color: var(--red);
+}
+
+@media(max-width:600px) {
+
+    h1 {
+        font-size: 18px;
+    }
+
+    .cards {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .card:last-child {
+        grid-column: span 2;
+    }
+
+}
+
 </style>
+
 </head>
+
 <body>
+
 <header>
-<h2>Universal Crypto Scanner</h2>
-<div class="sub">1H Early | 4H Confirmation | 1D Confirmation</div>
+
+<h1>Universal Crypto Reversal Scanner</h1>
+
+<p>
+Support / Resistance • RSI 14 • Divergence • EMA 20/50 • Breakout & Retest
+</p>
+
 </header>
-<div class="container">
-<div class="status" id="status">Scanner शुरू हो रहा है...</div>
-<button onclick="loadData()">Refresh Scanner</button>
-<div class="table-wrap">
+
+<main>
+
+<div class="top">
+
+<button id="scanBtn" onclick="loadScan()">
+SCAN NOW
+</button>
+
+<span id="status">
+Scanner ready
+</span>
+
+</div>
+
+<div class="cards">
+
+<div class="card">
+Coins scanned
+<b id="count">—</b>
+</div>
+
+<div class="card">
+Strong Buy
+<b id="buys">—</b>
+</div>
+
+<div class="card">
+Strong Sell
+<b id="sells">—</b>
+</div>
+
+</div>
+
+<div class="tablewrap">
+
 <table>
+
 <thead>
+
 <tr>
-<th>Coin</th>
-<th>1H Early</th>
-<th>4H Early</th>
-<th>4H Confirmed</th>
-<th>1D Early</th>
-<th>1D Confirmed</th>
+
+<th>COIN</th>
+
+<th>1H EARLY</th>
+
+<th>4H MAIN REVERSAL</th>
+
+<th>1D CONFIRM</th>
+
 <th>RSI 4H</th>
-<th>Strong Signal</th>
+
+<th>SUPPORT (4H)</th>
+
+<th>RESISTANCE (4H)</th>
+
+<th>STRONG SIGNAL</th>
+
 </tr>
+
 </thead>
+
 <tbody id="rows">
-<tr><td colspan="8">Loading...</td></tr>
+
+<tr>
+<td colspan="8">
+Press SCAN NOW to load market data.
+</td>
+</tr>
+
 </tbody>
+
 </table>
+
 </div>
-<div class="note">
-Strong Buy/Sell तभी दिखेगा जब 4H और 1D दोनों पर Confirmed Signal एक ही दिशा में हो। यह स्कैनर ऑटो ट्रेडिंग नहीं करता और संकेत लाभ की गारंटी नहीं हैं।
-</div>
-</div>
+
+<p class="small">
+
+Signals use completed candles only.
+1H is an early alert; 4H is the main reversal timeframe;
+1D is confirmation.
+
+This is an analytical scanner, not financial advice.
+Confirm signals independently before trading.
+
+</p>
+
+</main>
+
 <script>
-function signalClass(value){
- if(value==="BUY") return "buy";
- if(value==="SELL") return "sell";
- return "wait";
+
+function fmt(value) {
+
+    if (value === null || value === undefined) {
+        return "—";
+    }
+
+    let number = Number(value);
+
+    return Number.isFinite(number)
+        ? number.toLocaleString(undefined, {
+            maximumFractionDigits: 8
+        })
+        : "—";
+
 }
-function strongClass(value){
- if(value==="STRONG BUY") return "strongbuy";
- if(value==="STRONG SELL") return "strongsell";
- return "wait";
+
+
+function cls(value) {
+
+    return String(value || "WAIT").replace(/\s/g, "");
+
 }
-function makeCell(value, cls){
- const td=document.createElement("td");
- td.className=cls;
- td.textContent=value || "WAIT";
- return td;
+
+
+function cell(value) {
+
+    return `<span class="signal ${cls(value)}">
+        ${value || "WAIT"}
+    </span>`;
+
 }
-async function loadData(){
- const status=document.getElementById("status");
- const rows=document.getElementById("rows");
- status.textContent="Market data लोड हो रहा है...";
- rows.innerHTML='<tr><td colspan="8">Loading...</td></tr>';
- try{
-  const response=await fetch("/api/scan");
-  if(!response.ok) throw new Error("Server error: "+response.status);
-  const data=await response.json();
-  if(!data.success || !Array.isArray(data.coins)){
-   throw new Error("Invalid scanner response");
-  }
-  rows.innerHTML="";
-  data.coins.forEach(coin=>{
-   const tr=document.createElement("tr");
-   const name=document.createElement("td");
-   name.textContent=(coin.symbol || "").replace("USDT","");
-   tr.appendChild(name);
-   if(coin.status!=="OK"){
-    const error=document.createElement("td");
-    error.colSpan=7;
-    error.className="error";
-    error.textContent="Data unavailable";
-    tr.appendChild(error);
-   }else{
-    const h1=coin["1h"];
-    const h4=coin["4h"];
-    const d1=coin["1d"];
-    tr.appendChild(makeCell(h1.early_signal,signalClass(h1.early_signal)));
-    tr.appendChild(makeCell(h4.early_signal,signalClass(h4.early_signal)));
-    tr.appendChild(makeCell(h4.confirmed_signal,signalClass(h4.confirmed_signal)));
-    tr.appendChild(makeCell(d1.early_signal,signalClass(d1.early_signal)));
-    tr.appendChild(makeCell(d1.confirmed_signal,signalClass(d1.confirmed_signal)));
-    tr.appendChild(makeCell(h4.rsi,"wait"));
-    tr.appendChild(makeCell(coin.strong_signal,strongClass(coin.strong_signal)));
-   }
-   rows.appendChild(tr);
-  });
-  status.textContent="Scanner Active | "+data.count+" Coins | Updated: "+data.updated;
- }catch(error){
-  status.textContent="Scanner Error: "+error.message;
-  rows.innerHTML='<tr><td colspan="8" class="error">डेटा लोड नहीं हुआ। Refresh करें।</td></tr>';
- }
+
+
+async function loadScan() {
+
+    const btn = document.getElementById("scanBtn");
+
+    const status = document.getElementById("status");
+
+    btn.disabled = true;
+
+    status.textContent = "Scanning closed candles…";
+
+    try {
+
+        const response = await fetch(
+            "/api/scan",
+            { cache: "no-store" }
+        );
+
+        if (!response.ok) {
+            throw new Error("API error " + response.status);
+        }
+
+        const data = await response.json();
+
+        if (data.status !== "success") {
+            throw new Error("Scan failed");
+        }
+
+        const list = data.symbols || [];
+
+        document.getElementById("count").textContent =
+            list.length;
+
+        document.getElementById("buys").textContent =
+            list.filter(x => x.strong === "STRONG BUY").length;
+
+        document.getElementById("sells").textContent =
+            list.filter(x => x.strong === "STRONG SELL").length;
+
+
+        document.getElementById("rows").innerHTML =
+            list.map(x => {
+
+                if (x.error) {
+
+                    return `
+                    <tr>
+                        <td>${x.symbol}</td>
+                        <td colspan="7" class="error">
+                            ${x.error}
+                        </td>
+                    </tr>
+                    `;
+
+                }
+
+                const h = x["1H"] || {};
+                const f = x["4H"] || {};
+                const d = x["1D"] || {};
+
+                return `
+                <tr>
+
+                    <td><b>${x.symbol}</b></td>
+
+                    <td>${cell(h.signal)}</td>
+
+                    <td>${cell(f.signal)}</td>
+
+                    <td>${cell(d.signal)}</td>
+
+                    <td>${fmt(f.rsi)}</td>
+
+                    <td>${fmt(f.support)}</td>
+
+                    <td>${fmt(f.resistance)}</td>
+
+                    <td>${cell(x.strong)}</td>
+
+                </tr>
+                `;
+
+            }).join("");
+
+
+        status.textContent =
+            `Updated: ${new Date().toLocaleTimeString()} • ${data.scan_seconds}s`;
+
+
+    } catch (error) {
+
+        status.textContent = "Error: " + error.message;
+
+        status.className = "error";
+
+    } finally {
+
+        btn.disabled = false;
+
+    }
+
 }
-loadData();
+
+
+loadScan();
+
 </script>
+
 </body>
+
 </html>
