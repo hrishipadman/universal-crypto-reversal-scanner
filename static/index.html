@@ -1,0 +1,113 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universal Crypto Reversal Scanner</title>
+<style>
+body{margin:0;background:#0b1220;color:#fff;font-family:Arial;padding:16px}
+h2{color:#60a5fa}
+.card{background:#17243a;padding:15px;border-radius:12px;margin:12px 0}
+button{background:#2563eb;color:white;border:0;padding:13px;border-radius:8px;margin:5px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:10px 5px;border-bottom:1px solid #334155;text-align:left}
+.buy{color:#4ade80}.sell{color:#f87171}.wait{color:#facc15}
+small{color:#9ca3af}
+</style>
+</head>
+<body>
+<h2>Universal Crypto Reversal Scanner</h2>
+<small>Binance Spot | All USDT Pairs | 4H + 1D</small>
+
+<div class="card">
+<h3>Market Scanner</h3>
+<p id="status">Connecting...</p>
+<button onclick="scan()">Scan Next 40 Pairs</button>
+<button onclick="scanAll()">Scan All Pairs</button>
+<button onclick="notify()">Enable Alerts</button>
+</div>
+
+<div class="card">
+<table>
+<thead>
+<tr>
+<th>Coin</th><th>4H</th><th>1D</th><th>RSI</th>
+</tr>
+</thead>
+<tbody id="results"></tbody>
+</table>
+</div>
+
+<div class="card">
+<h3>Indicator Settings</h3>
+<p>RSI: 14</p>
+<p>EMA: 20 / 50</p>
+<p>Support: Last 30 candles</p>
+<p>Resistance: Last 30 candles</p>
+</div>
+
+<script>
+let offset=0,total=0,busy=false;
+let seen=new Set();
+
+function cls(s){
+ if(s.includes("BUY"))return "buy";
+ if(s.includes("SELL"))return "sell";
+ return "wait";
+}
+
+async function scan(){
+ if(busy)return;
+ busy=true;
+ document.getElementById("status").innerText="Scanning...";
+ try{
+ const res=await fetch("/api/scan?offset="+offset+"&limit=40");
+ const data=await res.json();
+ if(data.error)throw Error(data.error);
+ total=data.total;
+ data.results.forEach(r=>{
+ if(seen.has(r.symbol))return;
+ seen.add(r.symbol);
+ const a=r["4h"]||{},b=r["1d"]||{};
+ const tr=document.createElement("tr");
+ tr.innerHTML="<td>"+r.symbol+"</td>"+
+ "<td class='"+cls(a.signal||"WAIT")+"'>"+(a.signal||"-")+"</td>"+
+ "<td class='"+cls(b.signal||"WAIT")+"'>"+(b.signal||"-")+"</td>"+
+ "<td>"+(a.rsi??"-")+"</td>";
+ document.getElementById("results").appendChild(tr);
+ if(Notification.permission==="granted"){
+ if(a.signal&&a.signal!=="WAIT")
+ new Notification(r.symbol+" 4H: "+a.signal);
+ if(b.signal&&b.signal!=="WAIT")
+ new Notification(r.symbol+" 1D: "+b.signal);
+ }
+ });
+ offset=data.next_offset;
+ if(data.done)offset=0;
+ document.getElementById("status").innerText=
+ "Scanned "+seen.size+" of "+total+" pairs";
+ }catch(e){
+ document.getElementById("status").innerText="Error: "+e.message;
+ }
+ busy=false;
+}
+
+async function scanAll(){
+ while(offset!==0 || seen.size===0){
+ await scan();
+ if(offset===0)break;
+ }
+}
+
+async function notify(){
+ if(!("Notification" in window)){
+ alert("Notifications not supported");
+ return;
+ }
+ let p=await Notification.requestPermission();
+ alert("Notification permission: "+p);
+}
+</script>
+</body>
+</html>
