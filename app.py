@@ -225,6 +225,156 @@ def health():
     return jsonify({"status": "running"})
 
 
+def get_historical_candles(symbol, interval):
+    url = f"{BINANCE_API}/api/v3/klines"
+    params = {"symbol": symbol, "interval": interval, "limit": 1000}
+
+    response = session.get(url, params=params, timeout=25)
+    response.raise_for_status()
+    data = response.json()
+
+    candles = []
+    for item in data[:-1]:
+        candles.append({
+            "open_time": int(item[0]),
+            "close_time": int(item[6]),
+            "high": float(item[2]),
+            "low": float(item[3]),
+            "close": float(item[4])
+        })
+
+    return candles
+
+
+def historical_confirmed_signal(closes):
+    if len(closes) < 60:
+        return "WAIT"
+
+    price = closes[-1]
+    rsi = calculate_rsi(closes)
+    ema20 = ema(closes, 20)
+    ema50 = ema(closes, 50)
+    macd, macd_signal = calculate_macd(closes)
+
+    if price > ema20 and ema20 > ema50 and rsi > 50 and macd > macd_signal:
+        return "BUY"
+
+    if price < ema20 and ema20 < ema50 and rsi < 50 and macd < macd_signal:
+        return "SELL"
+
+    return "WAIT"
+
+
+def backtest_coin(symbol):
+    try:
+        candles4h = get_historical_candles(symbol, "4h")
+        candles1d = get_historical_candles(symbol, "1d")
+
+        closes4h = [c["close"] for c in candles4h]
+        closes1d = [c["close"] for c in candles1d]
+
+        daily_index = 0
+        trades = []
+
+        # 7 days ahead requires 42 future 4H candles.
+        for i in range(59, len(candles4h) - 42):
+
+            signal_time = candles4h[i]["close_time"]
+
+            while (
+                daily_index + 1 < len(candles1d)
+                and candles1d[daily_index + 1]["close_time"] <= signal_time
+            ):
+                daily_index += 1
+
+            if candles1d[daily_index]["close_time"] > signal_time:
+                continue
+
+            signal4h = historical_confirmed_signal(closes4h[:i + 1])
+            signal1d = historical_confirmed_signal(
+                closes1d[:daily_index + 1]
+            )
+
+            if signal4h == "BUY" and signal1d == "BUY":
+                direction = 1
+                signal = "STRONG BUY"
+
+            elif signal4h == "SELL" and signal1d == "SELL":
+                direction = -1
+                signal = "STRONG SELL"
+
+            else:
+                continue
+
+            entry = closes4h[i]
+            result = {
+                "signal": signal,
+                "entry_price": entry,
+                "time": signal_time
+            }
+
+            for days, bars in [(1, 6), (3, 18), (7, 42)]:
+                future_price = closes4h[i + bars]
+                raw_return = ((future_price / entry) - 1) * 100
+                directional_return = raw_return * direction
+
+                result[f"return_{days}d_pct"] = round(raw_return, 3)
+                result[f"directional_{days}d_pct"] = round(
+                    directional_return, 3
+                )
+                result[f"win_{days}d"] = directional_return > 0
+
+            trades.append(result)
+
+        summary = {}
+
+        for days in [1, 3, 7]:
+            key = f"directional_{days}d_pct"
+            wins = sum(1 for t in trades if t[f"win_{days}d"])
+            count = len(trades)
+
+            summary[f"{days}d"] = {
+                "trades": count,
+                "wins": wins,
+                "losses": count - wins,
+                "win_rate_pct": round(wins / count * 100, 2) if count else 0,
+                "average_return_pct": round(
+                    sum(t[key] for t in trades) / count, 3
+                ) if count else 0
+            }
+
+        return {
+            "symbol": symbol,
+            "status": "OK",
+            "total_strong_signals": len(trades),
+            "summary": summary,
+            "recent_trades": trades[-10:]
+        }
+
+    except Exception as error:
+        return {
+            "symbol": symbol,
+            "status": "ERROR",
+            "error": str(error)
+        }
+
+
+@app.route("/api/backtest")
+def run_backtest():
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(backtest_coin, SYMBOLS))
+
+    valid = [r for r in results if r["status"] == "OK"]
+
+    return jsonify({
+        "success": True,
+        "method": "4H and 1D confirmed signals",
+        "future_periods": ["1 day", "3 days", "7 days"],
+        "coins_tested": len(results),
+        "successful_coins": len(valid),
+        "results": results
+    })
+    
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
