@@ -2,12 +2,13 @@
 import os
 import time
 import requests
-import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder="static")
 
 BINANCE_API = "https://data-api.binance.vision"
+
 SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT",
     "SOLUSDT", "DOGEUSDT", "ADAUSDT", "TRXUSDT",
@@ -15,81 +16,118 @@ SYMBOLS = [
     "BCHUSDT", "ETCUSDT", "NEARUSDT"
 ]
 
+session = requests.Session()
+session.headers.update({"User-Agent": "Crypto-Reversal-Scanner/1.0"})
 
-def get_candles(symbol, interval, limit=220):
+
+def get_candles(symbol, interval):
     url = f"{BINANCE_API}/api/v3/klines"
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit
-    }
+    params = {"symbol": symbol, "interval": interval, "limit": 220}
 
-    response = requests.get(url, params=params, timeout=15)
+    response = session.get(url, params=params, timeout=15)
     response.raise_for_status()
     data = response.json()
 
-    df = pd.DataFrame(data, columns=[
-        "time", "open", "high", "low", "close", "volume",
-        "close_time", "quote_volume", "trades",
-        "taker_buy_base", "taker_buy_quote", "ignore"
-    ])
+    if not isinstance(data, list) or len(data) < 60:
+        raise ValueError("Not enough candle data")
 
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col])
+    candles = []
+    for item in data:
+        candles.append({
+            "high": float(item[2]),
+            "low": float(item[3]),
+            "close": float(item[4])
+        })
 
-    return df
+    # Binance's last candle may still be forming.
+    return candles[:-1]
 
 
-def calculate_indicators(df):
-    df = df.copy()
+def ema(values, period):
+    if len(values) < period:
+        raise ValueError("Not enough data for EMA")
 
-    df["ema20"] = df["close"].ewm(span=20, adjust=False).mean()
-    df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
+    multiplier = 2 / (period + 1)
+    result = sum(values[:period]) / period
 
-    delta = df["close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    for value in values[period:]:
+        result = (value - result) * multiplier + result
 
-    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    return result
 
-    rs = avg_gain / avg_loss.replace(0, 0.0000001)
-    df["rsi"] = 100 - (100 / (1 + rs))
 
-    ema12 = df["close"].ewm(span=12, adjust=False).mean()
-    ema26 = df["close"].ewm(span=26, adjust=False).mean()
+def calculate_rsi(values, period=14):
+    if len(values) <= period:
+        raise ValueError("Not enough data for RSI")
 
-    df["macd"] = ema12 - ema26
-    df["signal"] = df["macd"].ewm(span=9, adjust=False).mean()
+    gains = []
+    losses = []
 
-    return df
+    for i in range(1, len(values)):
+        change = values[i] - values[i - 1]
+        gains.append(max(change, 0))
+        losses.append(max(-change, 0))
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    for i in range(period, len(gains)):
+        avg_gain = ((avg_gain * (period - 1)) + gains[i]) / period
+        avg_loss = ((avg_loss * (period - 1)) + losses[i]) / period
+
+    if avg_loss == 0:
+        return 100.0
+
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def calculate_macd(values):
+    if len(values) < 40:
+        raise ValueError("Not enough data for MACD")
+
+    fast_values = []
+    slow_values = []
+
+    for end in range(26, len(values) + 1):
+        part = values[:end]
+        fast_values.append(ema(part, 12))
+        slow_values.append(ema(part, 26))
+
+    macd_values = [
+        fast_values[i] - slow_values[i]
+        for i in range(len(fast_values))
+    ]
+
+    macd_line = macd_values[-1]
+    signal_line = ema(macd_values, 9)
+
+    return macd_line, signal_line
 
 
 def analyze_timeframe(symbol, interval):
-    df = calculate_indicators(get_candles(symbol, interval))
+    candles = get_candles(symbol, interval)
+    closes = [c["close"] for c in candles]
 
-    # Use the last completed candle, not the currently forming candle.
-    last = df.iloc[-2]
-    previous = df.iloc[-3]
+    price = closes[-1]
+    previous_rsi = calculate_rsi(closes[:-1])
+    rsi = calculate_rsi(closes)
 
-    price = float(last["close"])
-    rsi = float(last["rsi"])
-    ema20 = float(last["ema20"])
-    ema50 = float(last["ema50"])
-    macd = float(last["macd"])
-    macd_signal = float(last["signal"])
+    ema20 = ema(closes, 20)
+    ema50 = ema(closes, 50)
+    macd, macd_signal = calculate_macd(closes)
 
     bullish_early = (
         price > ema20
         and ema20 > ema50
-        and rsi > float(previous["rsi"])
+        and rsi > previous_rsi
         and 40 <= rsi <= 65
     )
 
     bearish_early = (
         price < ema20
         and ema20 < ema50
-        and rsi < float(previous["rsi"])
+        and rsi < previous_rsi
         and 35 <= rsi <= 60
     )
 
@@ -107,11 +145,13 @@ def analyze_timeframe(symbol, interval):
         and macd < macd_signal
     )
 
-    early = "BUY" if bullish_early else (
+    early = (
+        "BUY" if bullish_early else
         "SELL" if bearish_early else "WAIT"
     )
 
-    confirmed = "BUY" if bullish_confirmed else (
+    confirmed = (
+        "BUY" if bullish_confirmed else
         "SELL" if bearish_confirmed else "WAIT"
     )
 
@@ -126,44 +166,41 @@ def analyze_timeframe(symbol, interval):
 
 
 def analyze_coin(symbol):
-    result = {"symbol": symbol}
-
     try:
         one_hour = analyze_timeframe(symbol, "1h")
         four_hour = analyze_timeframe(symbol, "4h")
         one_day = analyze_timeframe(symbol, "1d")
 
-        # Strong signal only when BOTH 4H and 1D agree.
-        strong_signal = "WAIT"
+        strong = "WAIT"
 
         if (
             four_hour["confirmed_signal"] == "BUY"
             and one_day["confirmed_signal"] == "BUY"
         ):
-            strong_signal = "STRONG BUY"
+            strong = "STRONG BUY"
 
         elif (
             four_hour["confirmed_signal"] == "SELL"
             and one_day["confirmed_signal"] == "SELL"
         ):
-            strong_signal = "STRONG SELL"
+            strong = "STRONG SELL"
 
-        result.update({
+        return {
+            "symbol": symbol,
+            "status": "OK",
             "1h": one_hour,
             "4h": four_hour,
             "1d": one_day,
-            "strong_signal": strong_signal,
-            "status": "OK"
-        })
+            "strong_signal": strong
+        }
 
     except Exception as error:
-        result.update({
+        return {
+            "symbol": symbol,
             "status": "ERROR",
             "error": str(error),
             "strong_signal": "WAIT"
-        })
-
-    return result
+        }
 
 
 @app.route("/")
@@ -173,11 +210,8 @@ def home():
 
 @app.route("/api/scan")
 def scan():
-    results = []
-
-    for symbol in SYMBOLS:
-        results.append(analyze_coin(symbol))
-        time.sleep(0.15)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(analyze_coin, SYMBOLS))
 
     return jsonify({
         "success": True,
