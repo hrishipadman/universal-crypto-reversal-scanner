@@ -1,276 +1,141 @@
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0b1220">
-<title>Universal Crypto Reversal Scanner V2</title>
-
+<meta name="theme-color" content="#10141f">
+<title>Universal Crypto Reversal Scanner</title>
 <style>
 *{box-sizing:border-box}
-body{
- margin:0;
- padding:16px;
- background:#0b1220;
- color:#fff;
- font-family:Arial,sans-serif
-}
-h2{color:#60a5fa}
-.card{
- background:#17243a;
- padding:18px;
- margin:15px 0;
- border-radius:16px;
- overflow:hidden
-}
-button{
- background:#2563eb;
- color:white;
- border:0;
- padding:13px 16px;
- border-radius:9px;
- margin:5px 3px;
- font-size:14px
-}
-button:disabled{opacity:.5}
-table{
- width:100%;
- border-collapse:collapse;
- min-width:650px
-}
-th,td{
- padding:12px 9px;
- border-bottom:1px solid #34435b;
- text-align:left;
- font-size:13px
-}
-th{color:#93c5fd}
-.tablewrap{overflow-x:auto}
+body{margin:0;background:#10141f;color:#f1f5f9;font-family:Arial,sans-serif}
+header{padding:18px;background:#182235;position:sticky;top:0}
+h2{margin:0 0 7px;color:#60a5fa}
+.sub{font-size:13px;color:#aab6ca}
+.container{padding:12px}
+.status{padding:12px;background:#1b293d;border-radius:9px;margin-bottom:12px;font-size:14px}
+button{background:#2563eb;color:white;border:0;border-radius:8px;padding:11px 16px;font-size:14px}
+.table-wrap{overflow-x:auto;background:#182235;border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:1050px;font-size:13px}
+th,td{padding:12px 10px;text-align:center;border-bottom:1px solid #29364a;white-space:nowrap}
+th{background:#24344c;color:#cbd5e1;position:sticky;top:0}
+td:first-child,th:first-child{text-align:left;position:sticky;left:0;background:#182235}
+th:first-child{background:#24344c}
 .buy{color:#4ade80;font-weight:bold}
 .sell{color:#fb7185;font-weight:bold}
-.wait{color:#facc15}
-.early{color:#fbbf24;font-weight:bold}
-small{color:#9ca3af}
-.stat{font-size:13px;color:#cbd5e1}
+.wait{color:#aab6ca}
+.strongbuy{color:#4ade80;font-weight:bold}
+.strongsell{color:#fb7185;font-weight:bold}
+.error{color:#fbbf24}
+.note{font-size:12px;color:#9ca3af;line-height:1.6;margin-top:14px}
 </style>
 </head>
-
 <body>
+<header>
+<h2>Universal Crypto Scanner</h2>
+<div class="sub">1H Early | 4H Confirmation | 1D Confirmation</div>
+</header>
 
-<h2>Universal Crypto Reversal Scanner</h2>
-<p class="stat">Binance Spot | All USDT Pairs | 4H + 1D</p>
+<div class="container">
+<div class="status" id="status">Scanner शुरू हो रहा है...</div>
+<button onclick="loadData()">Refresh Scanner</button>
 
-<div class="card">
-<h3>Market Scanner V2</h3>
-<p id="status">Connecting to Binance...</p>
-
-<button onclick="scanNext()">Scan Next 40 Pairs</button>
-<button onclick="scanAll()">Scan All Pairs</button>
-<button onclick="enableAlerts()">Enable Alerts</button>
-
-<p id="progress" class="stat">Ready</p>
-</div>
-
-<div class="card">
-<h3>Signal Summary</h3>
-<p id="summary">No scan completed yet</p>
-</div>
-
-<div class="card">
-<h3>Reversal Signals</h3>
-<div class="tablewrap">
+<div class="table-wrap" style="margin-top:14px">
 <table>
 <thead>
 <tr>
 <th>Coin</th>
+<th>1H Early</th>
 <th>4H Early</th>
 <th>4H Confirmed</th>
 <th>1D Early</th>
 <th>1D Confirmed</th>
 <th>RSI 4H</th>
+<th>Strong Signal</th>
 </tr>
 </thead>
-<tbody id="results">
-<tr><td colspan="6">Press Scan Next 40 Pairs</td></tr>
+<tbody id="rows">
+<tr><td colspan="8">Loading...</td></tr>
 </tbody>
 </table>
 </div>
-</div>
 
-<div class="card">
-<h3>Indicator Settings</h3>
-<p>RSI: 14</p>
-<p>EMA: 20 / 50</p>
-<p>Support: Previous 30 candles</p>
-<p>Resistance: Previous 30 candles</p>
-<p>Timeframes: 4H / 1D</p>
+<div class="note">
+Early Signal शुरुआती संकेत है। Confirmed Signal में EMA, RSI और MACD की शर्तें देखी जाती हैं। Strong Buy या Strong Sell तभी दिखेगा जब 4H और 1D दोनों एक ही दिशा में Confirm हों। यह जानकारी शैक्षणिक उपयोग के लिए है, निवेश की गारंटी नहीं।
+</div>
 </div>
 
 <script>
-let offset=0;
-let total=0;
-let scanning=false;
-let knownSignals=new Set();
-
-const API="";
-
-function signalClass(s){
- if(!s)return "wait";
- if(s.includes("BUY"))return "buy";
- if(s.includes("SELL"))return "sell";
+function signalClass(value){
+ if(value==="BUY") return "buy";
+ if(value==="SELL") return "sell";
  return "wait";
 }
 
-function signalCell(s){
- if(!s)return '<span class="wait">WAIT</span>';
- let cls=signalClass(s);
- return '<span class="'+cls+'">'+s+'</span>';
+function strongClass(value){
+ if(value==="STRONG BUY") return "strongbuy";
+ if(value==="STRONG SELL") return "strongsell";
+ return "wait";
 }
 
-async function checkStatus(){
+function cell(value, cls){
+ return `<td class="${cls}">${value || "WAIT"}</td>`;
+}
+
+async function loadData(){
+ const status=document.getElementById("status");
+ const rows=document.getElementById("rows");
+
+ status.textContent="Market data लोड हो रहा है...";
+ rows.innerHTML='<tr><td colspan="8">Loading...</td></tr>';
+
  try{
-  let r=await fetch(API+"/api/status");
-  let d=await r.json();
+  const response=await fetch("/api/scan");
+  if(!response.ok) throw new Error("Server error: "+response.status);
 
-  if(d.ok){
-   total=d.total_pairs;
-   document.getElementById("status").innerText=
-    "Connected | "+total+" USDT Pairs | Version "+d.version;
-  }else{
-   document.getElementById("status").innerText=
-    "API Error: "+d.error;
-  }
- }catch(e){
-  document.getElementById("status").innerText=
-   "Connection Error: "+e.message;
- }
-}
+  const data=await response.json();
+  if(!data.success) throw new Error("Scanner response error");
 
-function notifySignal(symbol,tf,type){
- let key=symbol+"-"+tf+"-"+type;
- if(knownSignals.has(key))return;
- knownSignals.add(key);
+  rows.innerHTML="";
 
- if("Notification" in window &&
-    Notification.permission==="granted"){
-  new Notification("Crypto Scanner: "+type,{
-   body:symbol+" | "+tf+" | Reversal Signal",
-   tag:key
+  data.coins.forEach(coin=>{
+   if(coin.status!=="OK"){
+    rows.innerHTML+=`
+    <tr>
+    <td>${coin.symbol}</td>
+    <td colspan="7" class="error">Data Error</td>
+    </tr>`;
+    return;
+   }
+
+   const h1=coin["1h"];
+   const h4=coin["4h"];
+   const d1=coin["1d"];
+
+   rows.innerHTML+=`
+   <tr>
+   <td><b>${coin.symbol.replace("USDT","")}</b></td>
+   ${cell(h1.early_signal,signalClass(h1.early_signal))}
+   ${cell(h4.early_signal,signalClass(h4.early_signal))}
+   ${cell(h4.confirmed_signal,signalClass(h4.confirmed_signal))}
+   ${cell(d1.early_signal,signalClass(d1.early_signal))}
+   ${cell(d1.confirmed_signal,signalClass(d1.confirmed_signal))}
+   <td>${h4.rsi}</td>
+   ${cell(coin.strong_signal,strongClass(coin.strong_signal))}
+   </tr>`;
   });
+
+  status.textContent=
+   `Scanner Active | ${data.count} Coins | Updated: ${data.updated}`;
+
+ }catch(error){
+  status.textContent="Error: "+error.message;
+  rows.innerHTML='<tr><td colspan="8" class="error">डेटा लोड नहीं हुआ। थोड़ी देर बाद Refresh करें।</td></tr>';
  }
 }
 
-function addRow(item){
- let a=item["4h"]||{};
- let b=item["1d"]||{};
-
- let early4=a.early_signal||"WAIT";
- let confirm4=a.confirmed_signal||"WAIT";
- let early1=b.early_signal||"WAIT";
- let confirm1=b.confirmed_signal||"WAIT";
-
- if(early4==="EARLY BUY"||early4==="EARLY SELL")
-  notifySignal(item.symbol,"4H",early4);
-
- if(confirm4==="CONFIRMED BUY"||confirm4==="CONFIRMED SELL")
-  notifySignal(item.symbol,"4H",confirm4);
-
- if(early1==="EARLY BUY"||early1==="EARLY SELL")
-  notifySignal(item.symbol,"1D",early1);
-
- if(confirm1==="CONFIRMED BUY"||confirm1==="CONFIRMED SELL")
-  notifySignal(item.symbol,"1D",confirm1);
-
- let tr=document.createElement("tr");
-
- tr.innerHTML=
-  "<td>"+item.symbol+"</td>"+
-  "<td>"+signalCell(early4)+"</td>"+
-  "<td>"+signalCell(confirm4)+"</td>"+
-  "<td>"+signalCell(early1)+"</td>"+
-  "<td>"+signalCell(confirm1)+"</td>"+
-  "<td>"+(a.rsi??"-")+"</td>";
-
- document.getElementById("results").appendChild(tr);
-}
-
-async function scanBatch(){
- if(scanning)return false;
-
- scanning=true;
-
- try{
-  let url=API+"/api/scan?offset="+offset+"&limit=40";
-  let response=await fetch(url);
-  let data=await response.json();
-
-  if(data.error)throw new Error(data.error);
-
-  if(!data.results)throw new Error("No scan results");
-
-  data.results.forEach(addRow);
-
-  offset=data.next_offset;
-  total=data.total;
-
-  document.getElementById("progress").innerText=
-   "Scanned "+Math.min(offset||total,total)+
-   " / "+total+" pairs";
-
-  let rows=document.querySelectorAll("#results tr").length;
-
-  document.getElementById("summary").innerText=
-   "Pairs displayed: "+rows;
-
-  return !data.done;
-
- }catch(e){
-  document.getElementById("progress").innerText=
-   "Scan Error: "+e.message;
-  return false;
-
- }finally{
-  scanning=false;
- }
-}
-
-async function scanNext(){
- if(scanning)return;
- if(offset===0)document.getElementById("results").innerHTML="";
- await scanBatch();
-}
-
-async function scanAll(){
- if(scanning)return;
-
- if(offset===0)
-  document.getElementById("results").innerHTML="";
-
- while(offset<total || offset===0){
-  let more=await scanBatch();
-  if(!more)break;
-  await new Promise(resolve=>setTimeout(resolve,500));
- }
-}
-
-async function enableAlerts(){
- if(!("Notification" in window)){
-  alert("This browser does not support notifications.");
-  return;
- }
-
- let permission=await Notification.requestPermission();
-
- if(permission==="granted"){
-  alert("Notifications enabled. Keep Scanner open for alerts.");
- }else{
-  alert("Notification permission was not granted.");
- }
-}
-
-checkStatus();
+loadData();
+setInterval(loadData,60000);
 </script>
-
 </body>
 </html>
